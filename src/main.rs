@@ -1,5 +1,5 @@
 use matrix_sdk::room::Room;
-use matrix_sdk::ruma::events::room::message::{SyncRoomMessageEvent,RoomMessageEventContent};
+use matrix_sdk::ruma::events::room::message::{RoomMessageEventContent, SyncRoomMessageEvent};
 use matrix_sdk::{config::SyncSettings, Client};
 use serde::Deserialize;
 use std::fs::File;
@@ -42,20 +42,25 @@ async fn login(conf: ConfigData) -> anyhow::Result<Client> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let client = login(read_conf()).await?;
+
     client.add_event_handler(|ev: SyncRoomMessageEvent, room: Room| async move {
+
+        if room.client().user_id().unwrap() == ev.sender(){
+            return ;
+        }
         match &ev.as_original().unwrap().content.msgtype {
             matrix_sdk::ruma::events::room::message::MessageType::Text(m) => {
                 println!("{}", m.body);
-                let fuck = RoomMessageEventContent::text_plain("MEur MEru MEur");
+                let fuck = RoomMessageEventContent::text_plain("MEur MEru MEur");  // prépare le message
                 match room {
-                    Room::Joined(raclure) => {raclure.send(fuck, None).await.unwrap();},
+                    Room::Joined(raclure) => {
+                        raclure.send(fuck, None).await.unwrap();
+                    }
                     _ => println!("LA FE%% CE A F"),
                 }
             }
             _ => println!("fuckyou"),
         }
-        // room
-        //ned answer fuck yourtself
     });
     client.sync(SyncSettings::default()).await?; // this essentially loops until we kill the bot
     Ok(())
