@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use tokio::sync::mpsc;
 use tokio::task;
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct ConfigData {
     username: String,
     password: String,
@@ -45,11 +45,15 @@ async fn login(conf: ConfigData) -> anyhow::Result<Client> {
     return Ok(client);
 }
 
-fn to_llama(ev: SyncRoomMessageEvent, stdin: Arc<Mutex<std::process::ChildStdin>>) {
+fn to_llama(ev: SyncRoomMessageEvent, stdin: Arc<Mutex<std::process::ChildStdin>>,restart_button_mv:Arc<Mutex<bool>>) {
     match &ev.as_original().unwrap().content.msgtype {
         matrix_sdk::ruma::events::room::message::MessageType::Text(m) => {
             println!("SEND:{}", &m.body);
-            let azerazerazer = format!("{}\n",m.body);
+            if m.body.contains("!!!FuckMeDady!!!") {
+                println!("EMERGENCY CUM CUMMED");
+                *restart_button_mv.lock().unwrap() = true;
+            }
+            let azerazerazer = format!("{}\n", m.body);
             let question = azerazerazer.as_bytes();
             stdin.lock().unwrap().write_all(question).unwrap();
         }
@@ -58,33 +62,37 @@ fn to_llama(ev: SyncRoomMessageEvent, stdin: Arc<Mutex<std::process::ChildStdin>
 }
 
 async fn handlers(client: Client, stdout: ChildStdout, stdin: Arc<Mutex<ChildStdin>>) {
-    let (tx,mut rx) = mpsc::channel(10);
+    let (tx, mut rx) = mpsc::channel(30);
+    let restart_button = Arc::new(Mutex::new(false));
+    let restart_button_mv = restart_button.clone();
     task::spawn(async move {
         let bufreader = BufReader::new(stdout);
         let lines = bufreader.lines();
         let room: Joined = rx.recv().await.unwrap();
-        for line in lines  {
-            let answer  = line.unwrap();
-            println!("LLAMA-OUT:{}",answer);
+        for line in lines {
+            let answer = line.unwrap();
+            println!("LLAMA-OUT:{}", answer);
             let llama_answer = RoomMessageEventContent::text_plain(answer);
             room.send(llama_answer, None).await.unwrap();
         }
     });
 
-    client.add_event_handler({
+    let handle = client.add_event_handler({
         //TRIKS
+        let restart_button_mv = restart_button_mv.clone();
         let stdin = stdin.clone();
         let tx = tx.clone();
         move |ev: SyncRoomMessageEvent, room: Room| {
             //TRIKS
             let tx = tx.clone();
             let stdin = stdin.clone();
+            let restart_button_mv = restart_button_mv.clone();
             async move {
                 //filtre les message envoyer a soit meme
                 if room.client().user_id().unwrap() == ev.sender() {
                     return;
                 }
-                to_llama(ev, stdin);
+                to_llama(ev, stdin,restart_button_mv);
                 match room {
                     Room::Joined(room) => {
                         tx.send(room).await.unwrap();
@@ -95,34 +103,39 @@ async fn handlers(client: Client, stdout: ChildStdout, stdin: Arc<Mutex<ChildStd
         }
     });
 
-    client.sync(SyncSettings::default()).await.unwrap(); // this essentially loops until we kill the bot
+    let mut cont = true;
+    while cont {
+        cont = !*restart_button.lock().unwrap();
+        client.sync_once(SyncSettings::default()).await.unwrap(); // this essentially loops until we kill the bot
+    }
+    println!("!!!FuckMeDady!!! --- EXIT --- !!!FuckMeDady!!!");
+    client.remove_event_handler(handle);
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let configuration_var = read_conf();
+    let client = login(configuration_var.clone()).await?;
 
-    let mut llama_process = Command::new("/bin/bash")
-    // let mut llama_process = Command::new("./prog")
-        .arg(format!("{}/examples/chat-30B.sh", configuration_var.path))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .env("USER_NAME", "frank")
-        .env("AI_NAME", "javis")
-        .env("N_THREAD", "16")
-        .env("N_PREDICTS", "2048")
-        .spawn()
-        .expect("Failed to lunch LLama");
+    loop {
+        let mut llama_process = Command::new("/bin/bash")
+            // let mut llama_process = Command::new("./prog")
+            .arg(format!("{}/examples/chat-30B.sh", configuration_var.path))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .env("USER_NAME", "frank")
+            .env("AI_NAME", "javis")
+            .env("N_THREAD", "16")
+            .env("N_PREDICTS", "2048")
+            .spawn()
+            .expect("Failed to lunch LLama");
 
-    // Take Redirection
-    let stdin = Arc::new(Mutex::new(
-        llama_process.stdin.take().expect("Failed to open stdin"),
-    ));
-    let stdout = llama_process.stdout.take().expect("Failed to open stdout");
+        // Take Redirection
+        let stdin = Arc::new(Mutex::new(
+            llama_process.stdin.take().expect("Failed to open stdin"),
+        ));
+        let stdout = llama_process.stdout.take().expect("Failed to open stdout");
 
-    let client = login(configuration_var).await?;
-
-    handlers(client, stdout, stdin).await;
-
-    Ok(())
+        handlers(client.clone(), stdout, stdin).await;
+    }
 }
