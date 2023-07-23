@@ -8,14 +8,13 @@ int main()
     while (1)
     {
         /* code */
-
-        char buffer[256];
-        memset(buffer,'\0',256);
-        char uwu[] = "UWU";
-        ssize_t bytesRead;
+        char uwu[] = "UWU\n";
+        char buffer[3+sizeof(uwu)];
+        memset(buffer,'\0',sizeof(buffer));
+        ssize_t bytesRead=0;
 
         // Read from standard input
-        bytesRead = read(STDIN_FILENO, buffer, sizeof(buffer));
+        bytesRead = read(STDIN_FILENO, buffer, sizeof(buffer)-sizeof(uwu));
 
         if (bytesRead < 0)
         {
@@ -30,7 +29,7 @@ int main()
         strcat(buffer, uwu);
 
         // Write to standard output
-        ssize_t bytesWritten = write(STDOUT_FILENO, buffer, strlen(buffer));
+        ssize_t bytesWritten = write(STDOUT_FILENO, buffer, sizeof(buffer));
 
         if (bytesWritten < 0)
         {
