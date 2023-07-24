@@ -1,6 +1,7 @@
 use matrix_sdk::room::{Joined, Room};
 use matrix_sdk::ruma::events::call::answer;
 use matrix_sdk::ruma::events::room::message::{RoomMessageEventContent, SyncRoomMessageEvent};
+use matrix_sdk::ruma::serde::duration;
 use matrix_sdk::{config::SyncSettings, Client};
 use serde::Deserialize;
 use std::fs::File;
@@ -8,6 +9,7 @@ use std::io::{BufRead, BufReader, Read, Stdout, Write};
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task;
 #[derive(Debug, Deserialize, Clone)]
@@ -48,8 +50,8 @@ async fn login(conf: ConfigData) -> anyhow::Result<Client> {
 fn to_llama(ev: SyncRoomMessageEvent, stdin: Arc<Mutex<std::process::ChildStdin>>,restart_button_mv:Arc<Mutex<bool>>) {
     match &ev.as_original().unwrap().content.msgtype {
         matrix_sdk::ruma::events::room::message::MessageType::Text(m) => {
-            println!("SEND:{}", &m.body);
-            if m.body.contains("!!!FuckMeDady!!!") {
+            println!("SEND:{}", m.body);
+            if m.body.contains("!!!FuckMeDaddy!!!") {
                 println!("EMERGENCY CUM CUMMED");
                 *restart_button_mv.lock().unwrap() = true;
             }
@@ -61,7 +63,7 @@ fn to_llama(ev: SyncRoomMessageEvent, stdin: Arc<Mutex<std::process::ChildStdin>
     }
 }
 
-async fn handlers(client: Client, stdout: ChildStdout, stdin: Arc<Mutex<ChildStdin>>) {
+async fn handlers(mut token: String, client: Client, stdout: ChildStdout, stdin: Arc<Mutex<ChildStdin>>) -> String{
     let (tx, mut rx) = mpsc::channel(30);
     let restart_button = Arc::new(Mutex::new(false));
     let restart_button_mv = restart_button.clone();
@@ -76,7 +78,6 @@ async fn handlers(client: Client, stdout: ChildStdout, stdin: Arc<Mutex<ChildStd
             room.send(llama_answer, None).await.unwrap();
         }
     });
-
     let handle = client.add_event_handler({
         //TRIKS
         let restart_button_mv = restart_button_mv.clone();
@@ -103,19 +104,19 @@ async fn handlers(client: Client, stdout: ChildStdout, stdin: Arc<Mutex<ChildStd
         }
     });
 
-    let mut cont = true;
-    while cont {
-        cont = !*restart_button.lock().unwrap();
-        client.sync_once(SyncSettings::default()).await.unwrap(); // this essentially loops until we kill the bot
+    while !*restart_button.lock().unwrap() {
+        token = client.sync_once(SyncSettings::default().token(token)).await.unwrap().next_batch;
     }
-    println!("!!!FuckMeDady!!! --- EXIT --- !!!FuckMeDady!!!");
+    println!("!!!FuckMeDaddy!!! --- EXIT --- !!!FuckMeDady!!!");
     client.remove_event_handler(handle);
+    token
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let configuration_var = read_conf();
     let client = login(configuration_var.clone()).await?;
+    let mut token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
 
     loop {
         let mut llama_process = Command::new("/bin/bash")
@@ -136,6 +137,6 @@ async fn main() -> anyhow::Result<()> {
         ));
         let stdout = llama_process.stdout.take().expect("Failed to open stdout");
 
-        handlers(client.clone(), stdout, stdin).await;
+        token = handlers(token,client.clone(), stdout, stdin).await;
     }
 }
