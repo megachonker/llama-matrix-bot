@@ -138,5 +138,6 @@ async fn main() -> anyhow::Result<()> {
         let stdout = llama_process.stdout.take().expect("Failed to open stdout");
 
         token = handlers(token,client.clone(), stdout, stdin).await;
+        llama_process.kill().unwrap();
     }
 }
