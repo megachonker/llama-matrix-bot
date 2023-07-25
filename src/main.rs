@@ -1,37 +1,84 @@
 use matrix_sdk::room::{Joined, Room};
-use matrix_sdk::ruma::events::call::answer;
 use matrix_sdk::ruma::events::room::message::{RoomMessageEventContent, SyncRoomMessageEvent};
-use matrix_sdk::ruma::serde::duration;
 use matrix_sdk::{config::SyncSettings, Client};
 use serde::Deserialize;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Stdout, Write};
-use std::process::{ChildStdin, ChildStdout, Command, Stdio};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task;
 #[derive(Debug, Deserialize, Clone)]
-struct ConfigData {
+struct Config {
+    matrix: MatrixConfig,
+    path: String,
+    command_args: CommandArgs,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct MatrixConfig {
     username: String,
     password: String,
     homeserver_url: String,
-    path: String,
 }
 
-fn read_conf() -> ConfigData {
-    let mut config_file = File::open("config.yaml").expect("Failed to open configuration file.");
-    let mut config_content = String::new();
-
-    config_file
-        .read_to_string(&mut config_content)
-        .expect("Failed to read configuration file.");
-
-    return serde_yaml::from_str(&config_content).expect("Failed to parse YAML.");
+#[derive(Debug, Deserialize, Clone)]
+struct CommandArgs {
+    ctx_size: u32,
+    temp: f64,
+    top_k: u32,
+    top_p: f64,
+    repeat_last_n: u32,
+    batch_size: u32,
+    repeat_penalty: f64,
+    model: String,
+    threads: u32,
+    n_predict: u32,
+    interactive: bool,
+    reverse_prompt: String,
+    prompt: String,
 }
 
-async fn login(conf: ConfigData) -> anyhow::Result<Client> {
+fn read_config_from_file() -> Result<Config, Box<dyn std::error::Error>> {
+    let mut file = File::open("config.yaml")?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+
+    let config: Config = serde_yaml::from_str(&contents)?;
+
+    Ok(config)
+}
+
+fn launch_program_with_config(command_args: &CommandArgs, program_executable: &str) -> Child {
+    let mut cmd = Command::new(program_executable);
+
+    cmd.arg("--ctx_size").arg(command_args.ctx_size.to_string());
+    cmd.arg("--temp").arg(command_args.temp.to_string());
+    cmd.arg("--top_k").arg(command_args.top_k.to_string());
+    cmd.arg("--top_p").arg(command_args.top_p.to_string());
+    cmd.arg("--repeat_last_n")
+        .arg(command_args.repeat_last_n.to_string());
+    cmd.arg("--batch_size")
+        .arg(command_args.batch_size.to_string());
+    cmd.arg("--repeat_penalty")
+        .arg(command_args.repeat_penalty.to_string());
+    cmd.arg("--model").arg(&command_args.model);
+    cmd.arg("--threads").arg(command_args.threads.to_string());
+    cmd.arg("--n_predict")
+        .arg(command_args.n_predict.to_string());
+    if command_args.interactive {
+        cmd.arg("--interactive");
+    }
+    cmd.arg("--reverse-prompt")
+        .arg(&command_args.reverse_prompt);
+    cmd.arg("--prompt").arg(&command_args.prompt);
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("failed to lunch LLaMa")
+}
+
+async fn login(conf: MatrixConfig) -> anyhow::Result<Client> {
     let client = Client::builder()
         .homeserver_url(conf.homeserver_url)
         .build()
@@ -47,7 +94,11 @@ async fn login(conf: ConfigData) -> anyhow::Result<Client> {
     return Ok(client);
 }
 
-fn to_llama(ev: SyncRoomMessageEvent, stdin: Arc<Mutex<std::process::ChildStdin>>,restart_button_mv:Arc<Mutex<bool>>) {
+fn to_llama(
+    ev: SyncRoomMessageEvent,
+    stdin: Arc<Mutex<std::process::ChildStdin>>,
+    restart_button_mv: Arc<Mutex<bool>>,
+) {
     match &ev.as_original().unwrap().content.msgtype {
         matrix_sdk::ruma::events::room::message::MessageType::Text(m) => {
             println!("SEND:{}", m.body);
@@ -63,7 +114,12 @@ fn to_llama(ev: SyncRoomMessageEvent, stdin: Arc<Mutex<std::process::ChildStdin>
     }
 }
 
-async fn handlers(mut token: String, client: Client, stdout: ChildStdout, stdin: Arc<Mutex<ChildStdin>>) -> String{
+async fn handlers(
+    mut token: String,
+    client: Client,
+    stdout: ChildStdout,
+    stdin: Arc<Mutex<ChildStdin>>,
+) -> String {
     let (tx, mut rx) = mpsc::channel(30);
     let restart_button = Arc::new(Mutex::new(false));
     let restart_button_mv = restart_button.clone();
@@ -93,7 +149,7 @@ async fn handlers(mut token: String, client: Client, stdout: ChildStdout, stdin:
                 if room.client().user_id().unwrap() == ev.sender() {
                     return;
                 }
-                to_llama(ev, stdin,restart_button_mv);
+                to_llama(ev, stdin, restart_button_mv);
                 match room {
                     Room::Joined(room) => {
                         tx.send(room).await.unwrap();
@@ -105,7 +161,11 @@ async fn handlers(mut token: String, client: Client, stdout: ChildStdout, stdin:
     });
 
     while !*restart_button.lock().unwrap() {
-        token = client.sync_once(SyncSettings::default().token(token)).await.unwrap().next_batch;
+        token = client
+            .sync_once(SyncSettings::default().token(token))
+            .await
+            .unwrap()
+            .next_batch;
     }
     println!("!!!FuckMeDaddy!!! --- EXIT --- !!!FuckMeDady!!!");
     client.remove_event_handler(handle);
@@ -114,30 +174,23 @@ async fn handlers(mut token: String, client: Client, stdout: ChildStdout, stdin:
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let configuration_var = read_conf();
-    let client = login(configuration_var.clone()).await?;
-    let mut token = client.sync_once(SyncSettings::default()).await.unwrap().next_batch;
-
+    let configuration_var = read_config_from_file().expect("failed to read conf file");
+    let client = login(configuration_var.matrix).await?;
+    let mut token = client
+        .sync_once(SyncSettings::default())
+        .await
+        .unwrap()
+        .next_batch;
     loop {
-        let mut llama_process = Command::new("/bin/bash")
-            // let mut llama_process = Command::new("./prog")
-            .arg(format!("{}/examples/chat-30B.sh", configuration_var.path))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .env("USER_NAME", "frank")
-            .env("AI_NAME", "javis")
-            .env("N_THREAD", "16")
-            .env("N_PREDICTS", "2048")
-            .spawn()
-            .expect("Failed to lunch LLama");
-
+        let mut llama_process =
+            launch_program_with_config(&configuration_var.command_args, &configuration_var.path);
         // Take Redirection
         let stdin = Arc::new(Mutex::new(
             llama_process.stdin.take().expect("Failed to open stdin"),
         ));
         let stdout = llama_process.stdout.take().expect("Failed to open stdout");
-
-        token = handlers(token,client.clone(), stdout, stdin).await;
+        token = handlers(token, client.clone(), stdout, stdin).await;
         llama_process.kill().unwrap();
+        llama_process.wait().unwrap();
     }
 }
