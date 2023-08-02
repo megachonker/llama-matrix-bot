@@ -2,9 +2,11 @@ use matrix_sdk::room::{Joined, Room};
 use matrix_sdk::ruma::events::room::message::{RoomMessageEventContent, SyncRoomMessageEvent};
 use matrix_sdk::{config::SyncSettings, Client};
 use serde::Deserialize;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{Sender, Receiver};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::task;
@@ -37,6 +39,65 @@ struct CommandArgs {
     interactive: bool,
     reverse_prompt: String,
     prompt: String,
+}
+
+//command
+// !help
+// !restart
+// !take
+// !give
+// !ftake //oom kill somone
+
+
+enum ChildAction {
+    Restart,
+    Ftake,
+    Take,
+    Give,
+}
+
+enum MasterAction {
+    Ack(Child),
+    Release,
+}
+
+struct Xv6{
+    chats:Vec<ShitChat>,
+    ressources:[Child;2],
+}
+
+impl Xv6 {
+    fn new_sc() {
+        //create pipe
+        //create shitchat
+        todo!()
+    }
+    
+}
+
+//child own by xv6
+struct ChildSC{
+    room:Joined,
+    to_sc:Sender<MasterAction>,
+    from_sc:Receiver<ChildAction>,
+    shitchat:Child,
+}
+
+//user are created when receive message
+struct ShitChat{
+    to_master:Sender<ChildAction>,
+    from_master:Receiver<MasterAction>,
+    room:Joined,//recognize room
+    chat_input:VecDeque<String>,
+    llama_instance:Child,//borrow a instance
+}
+
+
+//input room
+fn rooting_room(){
+    //search for a matching room | hashmap ?
+    //else
+    //create new child_sc
 }
 
 fn read_config_from_file() -> Result<Config, Box<dyn std::error::Error>> {
@@ -137,7 +198,7 @@ async fn handlers(
     let handle = client.add_event_handler({
         //TRIKS
         let restart_button_mv = restart_button_mv.clone();
-        let stdin = stdin.clone();
+        let stdin: Arc<Mutex<ChildStdin>> = stdin.clone();
         let tx = tx.clone();
         move |ev: SyncRoomMessageEvent, room: Room| {
             //TRIKS
@@ -152,6 +213,7 @@ async fn handlers(
                 to_llama(ev, stdin, restart_button_mv);
                 match room {
                     Room::Joined(room) => {
+                        //data a send to user
                         tx.send(room).await.unwrap();
                     }
                     _ => println!("event on unjoined room"),
@@ -159,6 +221,9 @@ async fn handlers(
             }
         }
     });
+
+    //handler to accept new people
+
 
     while !*restart_button.lock().unwrap() {
         token = client
