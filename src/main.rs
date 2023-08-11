@@ -60,6 +60,7 @@ enum MasterAction {
     Release,
 }
 
+//lunch 
 struct Master {
     chats: Vec<ShitChat>,
     ressources: [Child; 2],
@@ -106,7 +107,7 @@ fn read_config_from_file() -> Result<Config, Box<dyn std::error::Error>> {
     Ok(config)
 }
 
-fn launch_program_with_config(command_args: &CommandArgs, program_executable: &str) -> Child {
+fn lunch_LLM(command_args: &CommandArgs, program_executable: &str) -> Child {
     let mut cmd = Command::new(program_executable);
 
     cmd.arg("--ctx_size").arg(command_args.ctx_size.to_string());
@@ -234,24 +235,35 @@ async fn handlers(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let configuration_var = read_config_from_file().expect("failed to read conf file");
-    let client = login(configuration_var.matrix).await?;
+    // Read conf file
+    let conf = read_config_from_file().expect("failed to read conf file");
+
+    // generate client and login
+    let client = login(conf.matrix).await?;
+
     //get first token
     let mut token = client
         .sync_once(SyncSettings::default())
         .await
         .unwrap()
         .next_batch;
+
+    //main loop
     loop {
-        let mut llama_process =
-            launch_program_with_config(&configuration_var.command_args, &configuration_var.path);
+        //lunch LLM
+        let mut llm_proc = lunch_LLM(&conf.command_args, &conf.path);
+
         // Take Redirection
         let stdin = Arc::new(Mutex::new(
-            llama_process.stdin.take().expect("Failed to open stdin"),
+            llm_proc.stdin.take().expect("Failed to open stdin"),
         ));
-        let stdout = llama_process.stdout.take().expect("Failed to open stdout");
+        let stdout = llm_proc.stdout.take().expect("Failed to open stdout");
+        
+        //MAIN HANDLER
         token = handlers(token, client.clone(), stdout, stdin).await;
-        llama_process.kill().unwrap();
-        llama_process.wait().unwrap();
+
+        //clean process
+        llm_proc.kill().unwrap();
+        llm_proc.wait().unwrap();
     }
 }
