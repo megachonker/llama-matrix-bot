@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::task;
@@ -48,7 +48,6 @@ struct CommandArgs {
 // !give
 // !ftake //oom kill somone
 
-
 enum ChildAction {
     Restart,
     Ftake,
@@ -61,40 +60,37 @@ enum MasterAction {
     Release,
 }
 
-struct Xv6{
-    chats:Vec<ShitChat>,
-    ressources:[Child;2],
+struct Master {
+    chats: Vec<ShitChat>,
+    ressources: [Child; 2],
 }
 
-impl Xv6 {
+impl Master {
     fn new_sc() {
         //create pipe
         //create shitchat
         todo!()
     }
-    
 }
 
-//child own by xv6
-struct ChildSC{
-    room:Joined,
-    to_sc:Sender<MasterAction>,
-    from_sc:Receiver<ChildAction>,
-    shitchat:Child,
+struct ChildSC {
+    room: Joined,
+    to_sc: Sender<MasterAction>,
+    from_sc: Receiver<ChildAction>,
+    shitchat: Child,
 }
 
 //user are created when receive message
-struct ShitChat{
-    to_master:Sender<ChildAction>,
-    from_master:Receiver<MasterAction>,
-    room:Joined,//recognize room
-    chat_input:VecDeque<String>,
-    llama_instance:Child,//borrow a instance
+struct ShitChat {
+    to_master: Sender<ChildAction>,
+    from_master: Receiver<MasterAction>,
+    room: Joined, //recognize room
+    chat_input: VecDeque<String>,
+    llama_instance: Child, //borrow a instance
 }
 
-
 //input room
-fn rooting_room(){
+fn rooting_room() {
     //search for a matching room | hashmap ?
     //else
     //create new child_sc
@@ -224,7 +220,6 @@ async fn handlers(
 
     //handler to accept new people
 
-
     while !*restart_button.lock().unwrap() {
         token = client
             .sync_once(SyncSettings::default().token(token))
@@ -241,6 +236,7 @@ async fn handlers(
 async fn main() -> anyhow::Result<()> {
     let configuration_var = read_config_from_file().expect("failed to read conf file");
     let client = login(configuration_var.matrix).await?;
+    //get first token
     let mut token = client
         .sync_once(SyncSettings::default())
         .await
