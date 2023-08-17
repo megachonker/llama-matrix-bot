@@ -12,10 +12,10 @@ pub(crate) mod config;
 
 // use serde::Deserialize;
 
-// use tokio::{
-//     sync::mpsc,
-//     task,
-// };
+use tokio::{
+    sync::mpsc,
+    task,
+};
 
 // use matrix_sdk::{
 //     config::SyncSettings,

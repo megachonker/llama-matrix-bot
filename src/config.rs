@@ -1,24 +1,22 @@
-
-use std::{fs::File, io::Read};
 use serde::Deserialize;
+use std::{fs::File, io::Read};
 
-
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct Config {
     matrix: MatrixConfig,
     path: String,
-    command_args: CommandArgs,
+    pub command_args: CommandArgs,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 struct MatrixConfig {
     username: String,
     password: String,
     homeserver_url: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-struct CommandArgs {
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct CommandArgs {
     ctx_size: u32,
     temp: f64,
     top_k: u32,
@@ -34,22 +32,22 @@ struct CommandArgs {
     prompt: String,
 }
 
-impl Config{
-    pub fn new(path:String) -> Self{
+impl Config {
+    pub fn new(path: String) -> Self {
         Config::read_config_from_file(path).expect("FUYOU")
     }
-    
-    pub fn build_cmd(&self) -> String{
+
+    pub fn build_cmd(&self) -> String {
         self.command_args.to_string()
     }
 
-    fn read_config_from_file(path:String) -> Result<Config, Box<dyn std::error::Error>> {
+    fn read_config_from_file(path: String) -> Result<Config, Box<dyn std::error::Error>> {
         let mut file = File::open(path)?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
-    
+
         let config: Config = serde_yaml::from_str(&contents)?;
-    
+
         Ok(config)
     }
 }
@@ -58,22 +56,13 @@ impl Config{
 
 // }
 
-impl ToString for CommandArgs{
-    fn to_string(&self) -> String{
-        format!("azer")
+impl ToString for CommandArgs {
+    fn to_string(&self) -> String {
+        format!("--OwO")
     }
 }
 
-
-
-
-
-
-
 //     // let conf = read_config_from_file().expect("failed to read conf file");
-
-
-
 
 // // fn lunch_LLM(command_args: &CommandArgs, program_executable: &str) -> Child {
 // //     let mut cmd = Command::new(program_executable);
@@ -103,4 +92,3 @@ impl ToString for CommandArgs{
 // //         .spawn()
 // //         .expect("failed to lunch LLaMa")
 // // }
-
