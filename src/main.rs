@@ -1,6 +1,7 @@
 mod worker;
 use worker::Worker;
 use worker::profile;
+pub(crate) mod config;
 
 // use std::{
 //     fs::File,
