@@ -1,6 +1,7 @@
 mod worker;
+use config::Config;
 use worker::Worker;
-use worker::profile;
+use worker::profile::Profile;
 pub(crate) mod config;
 
 // use std::{
@@ -279,12 +280,15 @@ fn main() {
     // //.new
 
 
-    let worker = Worker::new(profile::Profile::base);
-
-        //  ::raw(String::from("azer")));
-    let worker = Worker::new(Default::default());
-    let worker = Worker::new(Default::default());
-
+    let mut work = Worker::new(Profile::base);
+    work.question("fuck yourself");
+    work.reponse();
+    work.question("AAAAAAAAAAAAAAAAAAAAAAAAAA");
+    work.reponse();
+    work.quit();
+    // Worker::new(Profile::from_config(Config::default()));
+    // Worker::new(Profile::raw(vec!["ls","-l","fucked"].iter().map(ToString::to_string).collect()));
+    // Worker::new(Default::default());
     // //.switch rooting
 
     // //main loop
