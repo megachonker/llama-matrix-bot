@@ -1,4 +1,6 @@
 mod worker;
+use std::process::{Command, exit};
+
 use config::Config;
 use worker::Worker;
 use worker::profile::Profile;
@@ -279,12 +281,12 @@ fn main() {
     // //.new
     // //.new
 
-
     let mut work = Worker::new(Profile::base);
-    work.question("fuck yourself");
+
+    work.question("user: hello how can i fuck cat!\n");
+
     work.reponse();
-    work.question("AAAAAAAAAAAAAAAAAAAAAAAAAA");
-    work.reponse();
+
     work.quit();
     // Worker::new(Profile::from_config(Config::default()));
     // Worker::new(Profile::raw(vec!["ls","-l","fucked"].iter().map(ToString::to_string).collect()));

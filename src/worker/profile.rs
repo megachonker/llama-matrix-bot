@@ -14,7 +14,7 @@ impl Profile {
         return match self {
             Profile::raw(val) => val,
             Profile::from_config(conf) => conf.build_cmd(),
-            Profile::base => Config::new("config.yaml".to_string()).build_cmd(), //file are dependent of directory
+            Profile::base => Config::new("config_test.yaml".to_string()).build_cmd(), //file are dependent of directory
         };
     }
 }

@@ -20,6 +20,7 @@ pub struct CommandArgs {
     model: String,
     interactive: bool,
     reverse_prompt: String,
+    in_suffix: String,
     prompt: String,
 }
 
@@ -41,6 +42,8 @@ impl Config {
             },
             "--reverse_prompt".to_string(),
             cmd_arg.reverse_prompt.clone(),
+            "--in-suffix".to_string(),
+            cmd_arg.in_suffix.to_string(),
             "--prompt".to_string(),
             cmd_arg.prompt.clone(),
         ]
