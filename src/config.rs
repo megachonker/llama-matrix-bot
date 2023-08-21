@@ -19,6 +19,7 @@ struct MatrixConfig {
 pub struct CommandArgs {
     model: String,
     interactive: bool,
+    n_predict: u16,
     reverse_prompt: String,
     in_suffix: String,
     prompt: String,
@@ -40,6 +41,8 @@ impl Config {
             } else {
                 "".to_string()
             },
+            "--n_predict".to_string(),
+            cmd_arg.n_predict.to_string(),
             "--reverse_prompt".to_string(),
             cmd_arg.reverse_prompt.clone(),
             "--in-suffix".to_string(),

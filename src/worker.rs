@@ -2,7 +2,7 @@ pub(crate) mod profile;
 use profile::Profile;
 
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Read, Write},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
 
@@ -18,6 +18,7 @@ impl Worker {
         //prompt need to be last arg !
         let mut process = Command::new(&lunch_args.first().expect("LOL ces vide"))
             .args(&lunch_args[1..])
+            .stderr(Stdio::null())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -43,15 +44,50 @@ impl Worker {
     }
 
     pub fn reponse(&mut self) {
-        //a check
+        eprintln!("Request answer");
+
         let reader = &mut self.stdout;
 
-        for line in reader.lines() {
-            match line {
-                Ok(line_content) => println!("{}", line_content),
-                Err(error) => eprintln!("Error reading line: {}", error),
+        //because cannot read byte just array
+        let mut buffer = [0; 1]; // Buffer to hold a single byte
+
+        let target = "User:"; // <=========================== stop DETECTION
+        let window_size = target.len();
+        let mut matchingbuffer = vec![0; window_size];
+
+        //rolling windows
+        let mut index = 0;
+
+        loop {
+            //read byte by byte
+            match reader.read_exact(&mut buffer) {
+                Ok(_) => {
+                    let character = buffer[0];
+
+                    //rolling buffer
+                    matchingbuffer[index] = character;
+
+                    //index oscilate 0<=>n
+                    index = (index + 1) % window_size;
+
+                    // Check if the buffer contains the target string
+                    let buffer_str: String = matchingbuffer.iter().map(|&b| b as char).collect();
+                    if buffer_str.contains(target) {
+                        //detect END TOKEN
+                        break;//QUIT when detected
+                    }
+                    
+                    let character = character as char;
+                    print!("{}", character);//<= need to store into somthing to detect line and return just line
+                    io::stdout().flush().expect("Failed to flush stdout");
+                }
+                Err(e) => {
+                    eprintln!("Error reading from child process: {}", e);
+                    break;
+                }
             }
         }
+
     }
 
     pub fn quit(mut self) {
@@ -61,13 +97,23 @@ impl Worker {
             .expect("je ne peut pas attendre que je meur apres etre mort !");
     }
 
-    //GPTed func
-    fn read_and_purge_stdout(reader: &mut BufReader<ChildStdout>, target_line: Vec<String>) {
-        let target_line = target_line.last().expect("le derner est pas accessible ?");
+    fn read_and_purge_stdout(reader: &mut BufReader<ChildStdout>, argv: Vec<String>) {
+        eprintln!("Wait Llama to start");
+        let prompt_org = argv
+            .last()
+            .expect("le derner argument est pas accessible ?");
+        let last_line = prompt_org
+            .lines()
+            .rev()
+            .nth(1)
+            .expect("dernierre line non accessible");
+
         for line in reader.lines() {
             match line {
                 Ok(line_content) => {
-                    if line_content.trim() == target_line.lines().next().unwrap() {
+                    print!("{}", line_content);
+                    io::stdout().flush().expect("Failed to flush stdout");
+                    if line_content.trim() == last_line {
                         break;
                     }
                 }

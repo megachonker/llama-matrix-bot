@@ -281,12 +281,17 @@ fn main() {
     // //.new
     // //.new
 
+    fn QR(work:&mut Worker,question:&str) {
+        let formated = format!("{}\n",question);
+        work.question(formated.as_str());
+        work.reponse();
+    }
+
     let mut work = Worker::new(Profile::base);
 
-    work.question("user: hello how can i fuck cat!\n");
-
-    work.reponse();
-
+    QR(&mut work,"what color of a orange ?");
+    QR(&mut work,"what is the color of a apple ?"); //check &mut
+    QR(&mut work,"where is france");
     work.quit();
     // Worker::new(Profile::from_config(Config::default()));
     // Worker::new(Profile::raw(vec!["ls","-l","fucked"].iter().map(ToString::to_string).collect()));
