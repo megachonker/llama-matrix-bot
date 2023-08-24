@@ -1,5 +1,5 @@
 mod worker;
-use std::process::{Command, exit};
+use std::{process::{Command, exit}, thread, time::Duration};
 
 use config::Config;
 use worker::Worker;
@@ -281,17 +281,24 @@ fn main() {
     // //.new
     // //.new
 
-    fn QR(work:&mut Worker,question:&str) {
-        let formated = format!("{}\n",question);
-        work.question(formated.as_str());
-        work.reponse();
+    fn pause(){
+        eprintln!("");
+        eprintln!("WAITING");
+        thread::sleep(Duration::from_millis(500));
+        eprintln!("RESUME");
+        eprintln!("");
+
     }
 
     let mut work = Worker::new(Profile::base);
-
-    QR(&mut work,"what color of a orange ?");
-    QR(&mut work,"what is the color of a apple ?"); //check &mut
-    QR(&mut work,"where is france");
+    // work.reponse();//like a start
+    work.interaction("what color of a orange ?");
+    work.interaction("what is the color of a apple ?");
+    work.interaction("using markdown make me a verry quick brief resume about why russian have a conflict with ukrainian");
+    work.interaction("make me a quick aiku about the pain behind programing");
+    work.interaction("why japanese are older that european ?");
+    work.interaction("why some people feel lonely ?");
+    work.interaction("does art are efficient to make money ?");
     work.quit();
     // Worker::new(Profile::from_config(Config::default()));
     // Worker::new(Profile::raw(vec!["ls","-l","fucked"].iter().map(ToString::to_string).collect()));

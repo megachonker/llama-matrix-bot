@@ -19,7 +19,7 @@ struct MatrixConfig {
 pub struct CommandArgs {
     model: String,
     interactive: bool,
-    n_predict: u16,
+    n_predict: i16, //usless need 
     reverse_prompt: String,
     in_suffix: String,
     prompt: String,
