@@ -280,25 +280,15 @@ async fn main() {
     // //.new
     // //.new
 
-    fn pause(){
-        eprintln!("");
-        eprintln!("WAITING");
-        thread::sleep(Duration::from_millis(500));
-        eprintln!("RESUME");
-        eprintln!("");
-
-    }
-
+    let mut azer = Vec::<String>::new();
     let mut work = Worker::new(Profile::base).await;
-    // work.reponse();//like a start
-    work.interaction("what color of a orange ?").await;
-    work.interaction("what is the color of a apple ?").await;
-    work.interaction("using markdown make me a verry quick brief resume about why russian have a conflict with ukrainian").await;
-    work.interaction("make me a quick aiku about the pain behind programing").await;
-    work.interaction("why japanese are older that european ?").await;
-    work.interaction("why some people feel lonely ?").await;
-    work.interaction("does art are efficient to make money ?").await;
+    azer.push(work.interaction("what color of a orange ?").await);
+    azer.push(work.interaction("what is the color of a apple ?").await);
     work.quit().await;
+
+    for ele in azer {
+        println!("RESUMER {}",ele);
+    }
     // Worker::new(Profile::from_config(Config::default()));
     // Worker::new(Profile::raw(vec!["ls","-l","fucked"].iter().map(ToString::to_string).collect()));
     // Worker::new(Default::default());

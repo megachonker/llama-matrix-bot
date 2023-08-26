@@ -15,8 +15,14 @@ impl Profile {
             Profile::raw(val) => val,
             Profile::from_config(conf) => conf.build_cmd(),
             Profile::base => Config::new("config_test.yaml".to_string()).build_cmd(), //file are dependent of directory
+            //fast
+            //short answer
+            //long
         };
     }
+
+    //get other variable, like timeout
+    //stop tocken ect
 }
 
 #[cfg(test)]

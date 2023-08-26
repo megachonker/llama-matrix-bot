@@ -22,6 +22,8 @@ pub struct Worker {
 impl Worker {
     pub async fn new(profile: Profile) -> Self {
         let lunch_args = profile.create_lungh_arg();
+        //need to retrive other variable from profile 
+
         //prompt need to be last arg !
         let mut process = tokio::process::Command::new(&lunch_args.first().expect("LOL ces vide"))
             .args(&lunch_args[1..])
@@ -48,16 +50,19 @@ impl Worker {
         }
     }
 
-    pub async fn question(&mut self, data: &str) {
+    async fn question(&mut self, data: &str) {
         //faire des check ici
-        print!("{}",data);
+        print!("{}", data);
         self.stdin
             .write(data.as_bytes())
             .await
             .expect("question, imposible");
     }
 
-    pub async fn reponse(&mut self) {
+    async fn reponse(&mut self) -> Vec::<char>{
+
+        let mut answer = Vec::<char>::new();
+
         let reader = &mut self.stdout;
 
         //because cannot read byte just array
@@ -67,64 +72,71 @@ impl Worker {
         let window_size: usize = target.len();
         let mut window: VecDeque<u8> = VecDeque::with_capacity(window_size);
 
+        //igniore the name and fill bufer
         for _ in 0..window_size {
-            reader.read_exact(&mut buffer).await.expect("first caract err");
+            reader
+                .read_exact(&mut buffer)
+                .await
+                .expect("first caract err");
             print!("{}", buffer[0] as char);
             window.push_back(b' ')
         }
 
-        //condiere 1 caractere emit for responce 
-        reader.read_exact(&mut buffer).await.expect("first caract err");
-        print!("{}", buffer[0] as char) ;//<= need to store into somthing to detect line and return just line
+        //whait first prediction of bot befort starting
+        reader
+            .read_exact(&mut buffer)
+            .await
+            .expect("first caract err");
+        print!("{}", buffer[0] as char); //<= need to store into somthing to detect line and return just line
+        answer.push(buffer[0] as char);
 
         loop {
-            //dans un async
+            //Get imput
             let ret = tokio::select! {
                 opt = reader.read_exact(&mut buffer) => Some(opt),
-                _ = tokio::time::sleep(Duration::from_secs(10)) =>None, // Wait for 3 seconds
-
+                _ = tokio::time::sleep(Duration::from_secs(20)) =>None, //<============== Wait NEed to cutsome value
             };
 
-
+            //Process input
             match ret {
                 Some(Ok(_)) => {
-                let character = buffer[0];
+                    let character = buffer[0];
+                    answer.push(character as char);
+                    print!("{}", character as char); //<= need to store into somthing to detect line and return just line
+                    io::stdout().flush().expect("Failed to flush stdout");
 
-                print!("{}", character as char) ;//<= need to store into somthing to detect line and return just line
-                io::stdout().flush().expect("Failed to flush stdout");
+                    //remove last carac
+                    window.pop_front();
+                    window.push_back(character);
 
-                //remove last carac
-                window.pop_front();
-                window.push_back(character);
-
-                // Check if the buffer contains the target string
-                let buffer_str: String = window.iter().map(|&b| b as char).collect();
-                if buffer_str.contains(target) {
-                    //detect END TOKEN
-                    break;//QUIT when detected
+                    // Check if the buffer contains the target string
+                    let buffer_str: String = window.iter().map(|&b| b as char).collect();
+                    if buffer_str.contains(target) {
+                        //detect END TOKEN
+                        break; //QUIT when detected
+                    }
+                }
+                Some(Err(e)) => {
+                    eprintln!("error IO");
+                    break;
+                }
+                None => {
+                    eprintln!("!!bot stuck Abord!!");
+                    break;
                 }
             }
-            Some(Err(e)) => {
-                eprintln!("error IO");
-                break;
-            }
-            None => {
-                eprintln!("!!bot stuck Abord!!");
-                break;
-            }
-        }
-
 
             //read byte by byte
 
             //
         }
+        answer
     }
 
-    pub async fn interaction(&mut self, question: &str) {
+    pub async fn interaction(&mut self, question: &str) -> String{
         let formated = format!("{}\n", question);
         self.question(formated.as_str()).await;
-        self.reponse().await;
+        self.reponse().await.iter().collect()
     }
 
     pub async fn quit(mut self) {
