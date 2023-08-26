@@ -36,16 +36,10 @@ impl Worker {
 
         //crée un buffer de lecture
         let stdout = process.stdout.take().expect("error");
-        let buffreader = BufReader::new(stdout);
+        let mut buffreader = BufReader::new(stdout);
 
         //purge le buffer
-        Self::read_and_purge_stdout(buffreader, lunch_args).await;
-
-
-        //Create error ?
-        let stdout = process.stdout.take().expect("error");
-        let buffreader = BufReader::new(stdout);
-
+        Self::read_and_purge_stdout(&mut buffreader, lunch_args).await;
 
         Self {
             stdin: process.stdin.take().expect("cursed"),
@@ -56,6 +50,7 @@ impl Worker {
 
     pub async fn question(&mut self, data: &str) {
         //faire des check ici
+        print!("{}",data);
         self.stdin
             .write(data.as_bytes())
             .await
@@ -73,37 +68,53 @@ impl Worker {
         let mut window: VecDeque<u8> = VecDeque::with_capacity(window_size);
 
         for _ in 0..window_size {
+            reader.read_exact(&mut buffer).await.expect("first caract err");
+            print!("{}", buffer[0] as char);
             window.push_back(b' ')
         }
+
+        //condiere 1 caractere emit for responce 
+        reader.read_exact(&mut buffer).await.expect("first caract err");
+        print!("{}", buffer[0] as char) ;//<= need to store into somthing to detect line and return just line
+
         loop {
             //dans un async
-            tokio::select! {
-                opt = reader.read_exact(&mut buffer) => match opt {
-                        Ok(_) => {
-                        let character = buffer[0];
+            let ret = tokio::select! {
+                opt = reader.read_exact(&mut buffer) => Some(opt),
+                _ = tokio::time::sleep(Duration::from_secs(10)) =>None, // Wait for 3 seconds
 
-                        print!("{}", character as char) ;//<= need to store into somthing to detect line and return just line
-                        io::stdout().flush().expect("Failed to flush stdout");
+            };
 
-                        //remove last carac
-                        window.pop_front();
-                        window.push_back(character);
 
-                        // Check if the buffer contains the target string
-                        let buffer_str: String = window.iter().map(|&b| b as char).collect();
-                        if buffer_str.contains(target) {
-                            //detect END TOKEN
-                            break;//QUIT when detected
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Error reading from child process: {}", e);
-                        break;
-                    }
-                },
-                _ = tokio::time::sleep(Duration::from_secs(3)) => { println!("lol no");}, // Wait for 3 seconds
+            match ret {
+                Some(Ok(_)) => {
+                let character = buffer[0];
 
+                print!("{}", character as char) ;//<= need to store into somthing to detect line and return just line
+                io::stdout().flush().expect("Failed to flush stdout");
+
+                //remove last carac
+                window.pop_front();
+                window.push_back(character);
+
+                // Check if the buffer contains the target string
+                let buffer_str: String = window.iter().map(|&b| b as char).collect();
+                if buffer_str.contains(target) {
+                    //detect END TOKEN
+                    break;//QUIT when detected
+                }
             }
+            Some(Err(e)) => {
+                eprintln!("error IO");
+                break;
+            }
+            None => {
+                eprintln!("!!bot stuck Abord!!");
+                break;
+            }
+        }
+
+
             //read byte by byte
 
             //
@@ -121,7 +132,7 @@ impl Worker {
         // self.process.wait().await.expect("je ne peut pas attendre que je meur apres etre mort !");
     }
 
-    async fn read_and_purge_stdout(mut reader: BufReader<ChildStdout>, argv: Vec<String>) {
+    async fn read_and_purge_stdout(reader: &mut BufReader<ChildStdout>, argv: Vec<String>) {
         eprintln!("Wait Llama to start");
         let prompt_org = argv
             .last()
