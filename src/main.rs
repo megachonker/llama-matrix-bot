@@ -256,9 +256,8 @@ use tokio::{
 //     token
 // }
 
-// #[tokio::main]
-// async 
-fn main() {
+#[tokio::main]
+async fn main() {
 // -> anyhow::Result<()> {
     // // Read conf file
     // let conf = read_config_from_file().expect("failed to read conf file");
@@ -290,16 +289,16 @@ fn main() {
 
     }
 
-    let mut work = Worker::new(Profile::base);
+    let mut work = Worker::new(Profile::base).await;
     // work.reponse();//like a start
-    work.interaction("what color of a orange ?");
-    work.interaction("what is the color of a apple ?");
-    work.interaction("using markdown make me a verry quick brief resume about why russian have a conflict with ukrainian");
-    work.interaction("make me a quick aiku about the pain behind programing");
-    work.interaction("why japanese are older that european ?");
-    work.interaction("why some people feel lonely ?");
-    work.interaction("does art are efficient to make money ?");
-    work.quit();
+    work.interaction("what color of a orange ?").await;
+    work.interaction("what is the color of a apple ?").await;
+    work.interaction("using markdown make me a verry quick brief resume about why russian have a conflict with ukrainian").await;
+    work.interaction("make me a quick aiku about the pain behind programing").await;
+    work.interaction("why japanese are older that european ?").await;
+    work.interaction("why some people feel lonely ?").await;
+    work.interaction("does art are efficient to make money ?").await;
+    work.quit().await;
     // Worker::new(Profile::from_config(Config::default()));
     // Worker::new(Profile::raw(vec!["ls","-l","fucked"].iter().map(ToString::to_string).collect()));
     // Worker::new(Default::default());
