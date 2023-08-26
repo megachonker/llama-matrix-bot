@@ -1,6 +1,11 @@
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use matrix_sdk::{config::SyncSettings, Client, LoopCtrl};
+use tokio::select;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::{Config, MatrixConfig},
@@ -8,7 +13,7 @@ use crate::{
 };
 
 pub struct Bot {
-    enable: LoopCtrl,
+    enable: CancellationToken,
     //client
     worker_list: Vec<Worker>,
     login: Client,
@@ -16,7 +21,6 @@ pub struct Bot {
 
 impl Bot {
     pub async fn new() -> Self {
-        let enable = LoopCtrl::Continue;
         //connect to the home server
         let matrixconf = Config::new("config_test.yaml".to_string()).matrix;
         let client = Self::login(matrixconf).await;
@@ -25,28 +29,43 @@ impl Bot {
         // let worker_a = Worker::new(Profile::base).await;
         // let worker_b = Worker::new(Profile::base).await;
 
-        //syncronize with home server
-        let sync_settings = SyncSettings::new().timeout(Duration::from_secs(30));
-        client.sync_with_callback(sync_settings, |response| async move {
-                for (room_id, room) in response.rooms.join {
-                    for event in room.timeline.events {
-                        println!("Get:event!");
-                    }
-                }
-                enable
-            })
-            .await.expect("Imposible de start la syncro server");
-
         Bot {
-            enable,
+            enable: CancellationToken::new(),
             login: client,
             worker_list: vec![], //vec![worker_a, worker_b],
         }
     }
 
-    pub async fn start(mut self) {
-        self.enable = LoopCtrl::Break;
+    pub async fn start_stop(&self) {
+        let login = self.login.clone(); 
+        let token = self.enable.clone(); 
+        let tt = self.enable.clone(); 
+
+        let join_handle = tokio::spawn(async move {
+
+            select! {
+                _ = token.cancelled() => {
+                    println!("CANCEL");
+                    5
+                }
+                _ = login.sync(SyncSettings::default()) => {
+                    println!("Start");
+                    99
+                }
+            }
+        });
+        
+        
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            tt.clone().cancel();
+        });
+    
+        assert_eq!(5, join_handle.await.unwrap());
+
+        
     }
+
 
     async fn login(conf: MatrixConfig) -> Client {
         let client = Client::builder()

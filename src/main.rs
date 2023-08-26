@@ -148,8 +148,8 @@ async fn main() {
     
 
     let instance = Bot::new().await;
-    thread::sleep(Duration::from_secs(5));
-    instance.start().await;
+    instance.start_stop().await;
+    println!("LOOP");
 loop {
     
 }
