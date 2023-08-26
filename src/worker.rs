@@ -9,7 +9,6 @@ use std::{
     collections::VecDeque,
     io::{self, Write},
     process::Stdio,
-    thread,
     time::{Duration, Instant},
 };
 
@@ -132,7 +131,7 @@ impl Worker {
         }
         answer
     }
-
+    // <S: AsRef<str>>(input: S)
     pub async fn interaction(&mut self, question: &str) -> String{
         let formated = format!("{}\n", question);
         self.question(formated.as_str()).await;

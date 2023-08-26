@@ -3,16 +3,16 @@ use std::{fs::File, io::Read};
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct Config {
-    matrix: MatrixConfig,
+    pub matrix: MatrixConfig,
     path: String,
     pub command_args: CommandArgs,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
-struct MatrixConfig {
-    username: String,
-    password: String,
-    homeserver_url: String,
+pub struct MatrixConfig {
+    pub username: String,
+    pub password: String,
+    pub homeserver_url: String,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
