@@ -115,6 +115,7 @@ pub(crate) mod config;
 
 #[tokio::main]
 async fn main() {
+    // console_subscriber::init();
 // -> anyhow::Result<()> {
     // // Read conf file
     // let conf = read_config_from_file().expect("failed to read conf file");
@@ -152,7 +153,7 @@ async fn main() {
     // println!("Sync1");
     // instance.sync_start_stop().await;
 loop {
-    
+    thread::sleep(Duration::from_secs(9999999));
 }
     // Worker::new(Profile::from_config(Config::default()));
     // Worker::new(Profile::raw(vec!["ls","-l","fucked"].iter().map(ToString::to_string).collect()));

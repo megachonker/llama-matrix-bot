@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.72"
+console-subscriber = "0.1.10"
 matrix-sdk = "0.6.2"
 serde = "1.0.174"
 serde_yaml = "0.9.25"

@@ -16,8 +16,9 @@ use matrix_sdk::{
     BaseRoom, Client,
 };
 use tokio::{
-    join, select,
-    sync::mpsc::{self, Receiver, Sender}, stream,
+    task,
+    join, select, stream,
+    sync::mpsc::{self, Receiver, Sender}, runtime::Builder,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -34,11 +35,10 @@ pub struct Bot {
     login: Client,
     // context:EvHandlerContext<'a>,
 }
-#[derive(Default)]
 struct room {
-    id: Box<String>,
-    message: String,
-    answer: String,
+    id: Box<RoomId>,
+    // message: String,
+    // answer: String,
 }
 
 //permet de déplacer les event
@@ -69,7 +69,7 @@ impl Bot {
     async fn handle_invitations(&self) {
         for room in self.login.invited_rooms().iter() {
             room.accept_invitation().await.expect("impossible to join");
-        }    
+        }
     }
 
     pub async fn start(mut self) {
@@ -101,40 +101,55 @@ impl Bot {
 
         //handle new message in rooter async
         //FUCK YOU add_handler_context !!!
+        let rooms = self.rooms.clone();
         tokio::spawn(async move {
+            let rooms = &rooms;
             loop {
-                let value = rx.recv().await.expect("nobody behind ?");
-                Bot::route_event(value).await;
+                let value = rx.recv().await.expect("nobody sending ?");
+                Bot::route_event(value, rooms).await;
             }
         });
 
         //start sync can be cancel by sync stop or can by async without await
-        Bot::sync_start(&self.login, &self.enable,self.rooms).await;
+        Bot::sync_start(&self.login, &self.enable, self.rooms).await;
     }
 
     //tout ce qui est recus par server
     //crée les room use by the bot
     async fn route_sync(mut rx: Receiver<SyncResponse>, rooms: Arc<std::sync::Mutex<Vec<room>>>) {
-        
         // mesrooms.push(room {..Default::default()});
-        
+
         loop {
-            {
-                let mut mesrooms = rooms.lock().unwrap();
-            }
             let data = rx.recv().await.expect("errr recv route data");
-            println!("-------------------------------------");
-            println!("{:?}",data.rooms.invite);
+            //     let inv_room = data.rooms.invite;
+            //     {
+            //         for (id,room) in inv_room{
+
+            //         }
+
+            //         let mut mesrooms = rooms.lock().unwrap();
+            //     }
+            // println!("-------------------------------------");
+            // println!("{:?}", data.presence.events);
         }
     }
 
     //tout ce qui est émit ou recus par une room
-    async fn route_event(bundle: ctx) {
+    async fn route_event(bundle: ctx, rooms: &Arc<std::sync::Mutex<Vec<room>>>) {
         //unwrap context
         let ev = bundle.ev;
         let room = bundle.room;
-        // room.room_id();
 
+        let roomid = room.room_id();
+
+        {
+            let mut roomlist_LOCKED = rooms.lock().unwrap();
+            if !roomlist_LOCKED.iter().any(|obj| obj.id == roomid) {
+                roomlist_LOCKED.push(room { id: roomid.into() });
+                println!("new room handled")
+                //need to attash worker
+            }
+        }
         match &ev.as_original().unwrap().content.msgtype {
             // matrix_sdk::ruma::events::room::message::MessageType::Notice()
             MessageType::Text(message) => {
@@ -162,7 +177,7 @@ impl Bot {
         let f2 = login //fuckyou sinc setting
             .sync_with_callback(SyncSettings::default(), |response| async move {
                 let tx = sync_channel;
-                tx.send(response).await.unwrap();
+                tx.send(response).await.expect("err send");
                 LoopCtrl::Continue
             });
         join!(f1, f2);
@@ -170,15 +185,19 @@ impl Bot {
 
     async fn sync_stop(&self, delay: Duration) -> tokio::task::JoinHandle<()> {
         let enable: CancellationToken = self.enable.clone();
-        return tokio::spawn(async move {
+        return  tokio::spawn(async move {
             tokio::time::sleep(delay).await;
             enable.cancel();
         });
     }
 
-    async fn sync_start(login: &Client, enable: &CancellationToken, rooms:Arc<std::sync::Mutex<Vec<room>>>) -> tokio::task::JoinHandle<()> {
+    async fn sync_start(
+        login: &Client,
+        enable: &CancellationToken,
+        rooms: Arc<std::sync::Mutex<Vec<room>>>,
+    ) -> tokio::task::JoinHandle<()> {
         let login = login.clone();
-        let rooms =rooms.clone();
+        let rooms = rooms.clone();
         let token = enable.clone();
 
         return tokio::spawn(async move {
