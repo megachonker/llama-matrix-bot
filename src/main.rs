@@ -147,10 +147,10 @@ async fn main() {
 
     
 
-    let mut instance = Bot::new().await;
-    instance.start();
-    println!("Sync1");
-    instance.sync_start_stop().await;
+    let instance = Bot::new().await;
+    instance.start().await;
+    // println!("Sync1");
+    // instance.sync_start_stop().await;
 loop {
     
 }

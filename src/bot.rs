@@ -10,34 +10,33 @@ use matrix_sdk::{
     ruma::{events::room::message::SyncRoomMessageEvent, RoomId},
     BaseRoom, Client,
 };
-use tokio::select;
+use tokio::{select, sync::mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::{Config, MatrixConfig},
     worker::{profile::Profile, Worker},
 };
-
 pub struct Bot {
     enable: CancellationToken,
     //client
+    data: Arc<Mutex<RACE>>,
     worker_list: Vec<Worker>,
     login: Client,
     // context:EvHandlerContext<'a>,
 }
-// #[derive(Clone)]
-// struct EvHandlerContext<'a>{
-//     room_list:Vec<&'a RoomId>
-// }
 
-// async fn test(
-//     ev: SyncRoomMessageEvent,
-//     _room: Room,
-//     _client: Client,
-//     context: Ctx<EvHandlerContext<'_>>,
-// ){
-//     ;
-// }
+#[derive(Clone, Copy)]
+struct RACE {
+    data: u8,
+}
+
+impl RACE {
+    fn suce(&mut self) {
+        self.data += 1;
+        println!("{}", self.data);
+    }
+}
 
 impl Bot {
     pub async fn new() -> Self {
@@ -50,39 +49,25 @@ impl Bot {
         // let worker_b = Worker::new(Profile::base).await;
 
         Bot {
-            // context: EvHandlerContext{room_list:vec![]} ,
             enable: CancellationToken::new(),
+            data: Arc::new(Mutex::new(RACE { data: 1 })),
             login: client,
             worker_list: vec![], //vec![worker_a, worker_b],
         }
     }
 
-    pub fn start(&mut self) {
+    pub async fn start(mut self) {
         self.enable = CancellationToken::new(); //to be sure
-
-        let list = Arc::new(Mutex::new(Vec::<String>::new()));
-
-        //ajoute les salon
-        self.login.add_event_handler({
-            let list = list.clone();
-            move |ev: SyncRoomMessageEvent, room: Room, client: Client| {
-                let list = list.clone();
-                async move {
-                    let room_id = room.room_id().to_string();
-                    println!("{}",room_id);
-                    list.lock().unwrap().to_vec().push(room_id);
-                }
-            }
-        });
+                                                // self.login.add_event_handler_context(self.data);
+        let data = self.data.clone();
 
         self.login.add_event_handler({
-            let list = list.clone();
-            move |ev: SyncRoomMessageEvent| {
-                let list = list.clone();
+            let data = self.data.clone();
+            move |ev: SyncRoomMessageEvent, room: Room| {
+                let data = data.clone();
                 async move {
-                    let data = list.clone();
-                    let data = data.lock().unwrap();
-                    println!("{}", data.join(", "));
+                    data.clone().lock().unwrap().suce();
+                    println!("EVENT!");
                 }
             }
         });
@@ -93,9 +78,10 @@ impl Bot {
         //     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         //     enable.cancel();
         // });
+        self.sync_start_stop().await;
     }
 
-    pub async fn sync_start_stop(&self) -> tokio::task::JoinHandle<()> {
+    async fn sync_start_stop(&mut self) -> tokio::task::JoinHandle<()> {
         let login = self.login.clone();
         let token = self.enable.clone();
 
