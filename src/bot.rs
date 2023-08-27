@@ -1,13 +1,11 @@
 use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
+    sync::{Arc, Mutex}, time::Duration,
 };
 
 use matrix_sdk::{
     config::SyncSettings,
-    event_handler::Ctx,
     room::{Joined, Room},
-    ruma::{events::room::message::SyncRoomMessageEvent, RoomId},
+    ruma::{events::room::message::SyncRoomMessageEvent, RoomId,},
     BaseRoom, Client,
 };
 use tokio::{select, sync::mpsc};
@@ -17,26 +15,28 @@ use crate::{
     config::{Config, MatrixConfig},
     worker::{profile::Profile, Worker},
 };
+
 pub struct Bot {
     enable: CancellationToken,
     //client
-    data: Arc<Mutex<RACE>>,
+    rooms: Vec<room>,
     worker_list: Vec<Worker>,
     login: Client,
     // context:EvHandlerContext<'a>,
 }
 
-#[derive(Clone, Copy)]
-struct RACE {
-    data: u8,
+struct room {
+    id: Box<RoomId>,
+    message:String,
+    answer:String,
+}
+#[derive(Debug)]
+struct ctx{
+    ev: SyncRoomMessageEvent,
+    room: Room
 }
 
-impl RACE {
-    fn suce(&mut self) {
-        self.data += 1;
-        println!("{}", self.data);
-    }
-}
+
 
 impl Bot {
     pub async fn new() -> Self {
@@ -50,40 +50,67 @@ impl Bot {
 
         Bot {
             enable: CancellationToken::new(),
-            data: Arc::new(Mutex::new(RACE { data: 1 })),
+            rooms: vec![],
             login: client,
             worker_list: vec![], //vec![worker_a, worker_b],
         }
     }
 
     pub async fn start(mut self) {
-        self.enable = CancellationToken::new(); //to be sure
-                                                // self.login.add_event_handler_context(self.data);
-        let data = self.data.clone();
+        //call disable to cancel sync
+        self.enable = CancellationToken::new(); //to be sure token enable
 
+        //i choose to use channel than context because after data was piped i can do 
+        //EVERYTHING, in the context the data inside the struct are STUCK like a CUCK
+        let (tx, mut rx) = mpsc::channel::<ctx>(10);
+
+        //on message receive
         self.login.add_event_handler({
-            let data = self.data.clone();
             move |ev: SyncRoomMessageEvent, room: Room| {
-                let data = data.clone();
+                let tx = tx.clone();
                 async move {
-                    data.clone().lock().unwrap().suce();
-                    println!("EVENT!");
+                    //FUCK YOU add_handler_context !!! 
+                    let playload = ctx{ev:ev.clone(),room:room.clone()};
+                    tx.send(playload).await.expect("Sending error");
                 }
             }
         });
 
-        // //if i desire to cancel
-        // let enable = self.enable.clone();
-        // tokio::spawn(async move {
-        //     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        //     enable.cancel();
-        // });
-        self.sync_start_stop().await;
+        //handle new message in rooter async
+        //FUCK YOU add_handler_context !!! 
+        tokio::spawn(async move{
+            loop {
+                let value = rx.recv().await.unwrap();
+                Bot::router(value);
+            }
+        });
+
+        //start sync can be cancel by sync stop or can by async without await
+        Bot::sync_start(&self.login,&self.enable).await;
     }
 
-    async fn sync_start_stop(&mut self) -> tokio::task::JoinHandle<()> {
-        let login = self.login.clone();
-        let token = self.enable.clone();
+
+    fn router(bundle:ctx){
+        //unwrap context
+        let ev = bundle.ev;
+        let room = bundle.room;
+
+
+        println!("new event:");
+        println!("{:?}",bundle);
+    }
+
+    async fn sync_stop(&self,delay:Duration) -> tokio::task::JoinHandle<()>{
+        let enable = self.enable.clone();
+        return  tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            enable.cancel();
+        });
+    }
+
+    async fn sync_start(login:&Client,enable:&CancellationToken) -> tokio::task::JoinHandle<()> {
+        let login = login.clone();
+        let token = enable.clone();
 
         return tokio::spawn(async move {
             select! {
