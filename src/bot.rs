@@ -35,10 +35,15 @@ pub struct Bot {
     login: Client,
     // context:EvHandlerContext<'a>,
 }
+
+
 struct room {
     id: Box<RoomId>,
-    // message: String,
-    // answer: String,
+    // azer: Vec<Box<String>>,
+    // azer: Vec<Box<String>>,
+    message:  Arc<Mutex<Vec<String>>>,
+    // answer:  Box<Vec<String>>,
+    // worker: Box<Worker>,
 }
 
 //permet de déplacer les event
@@ -101,12 +106,11 @@ impl Bot {
 
         //handle new message in rooter async
         //FUCK YOU add_handler_context !!!
-        let rooms = self.rooms.clone();
+        let romba = self.rooms.clone();
         tokio::spawn(async move {
-            let rooms = &rooms;
             loop {
                 let value = rx.recv().await.expect("nobody sending ?");
-                Bot::route_event(value, rooms).await;
+                Bot::route_event(value, &romba).await;
             }
         });
 
@@ -141,15 +145,24 @@ impl Bot {
         let room = bundle.room;
 
         let roomid = room.room_id();
+        let selected_room;
 
+        //create new room if needed
         {
             let mut roomlist_LOCKED = rooms.lock().unwrap();
             if !roomlist_LOCKED.iter().any(|obj| obj.id == roomid) {
-                roomlist_LOCKED.push(room { id: roomid.into() });
+                let str = Box::new("azer".to_string());
+                // let var = Vec::new(str);
+                roomlist_LOCKED.push(room { id: roomid.into(),message:Arc::new(Mutex::new(vec![]))});
+                // ,answer:vec![].into(),message:vec![].into(),worker:Worker::new(Profile::base).await.into()});
                 println!("new room handled")
                 //need to attash worker
             }
+            //assign room
+            selected_room = roomlist_LOCKED.iter().find(|obj| obj.id == roomid).unwrap().message.clone();
         }
+
+
         match &ev.as_original().unwrap().content.msgtype {
             // matrix_sdk::ruma::events::room::message::MessageType::Notice()
             MessageType::Text(message) => {
@@ -158,7 +171,15 @@ impl Bot {
                     Some(data) => data.body,
                     None => msg.body,
                 };
-                println!("{}", message)
+                let mut selected_room = selected_room.lock().unwrap();
+                println!("{}", message);
+                if message=="cum" {
+                    println!("HISTORIQUE:{:?}",selected_room);
+                }else {   
+                    selected_room.push(message.into());
+                }
+                //find Client with id
+                //append message
             }
             MessageType::Emote(emo) => {
                 println!("/me {}?", emo.body)
