@@ -31,7 +31,7 @@ pub struct Bot {
     enable: CancellationToken,
     //client
     rooms: Arc<Mutex<Vec<room>>>,
-    worker_list: Vec<Worker>,
+    worker_list: Arc<Mutex<Vec<Worker>>>,
     login: Client,
     // context:EvHandlerContext<'a>,
 }
@@ -43,7 +43,7 @@ struct room {
     // azer: Vec<Box<String>>,
     message:  Arc<Mutex<Vec<String>>>,
     // answer:  Box<Vec<String>>,
-    // worker: Box<Worker>,
+    worker: Worker,
 }
 
 //permet de déplacer les event
@@ -60,14 +60,14 @@ impl Bot {
         let client = Self::login(matrixconf).await;
 
         //reating some worker
-        // let worker_a = Worker::new(Profile::base).await;
-        // let worker_b = Worker::new(Profile::base).await;
+        let worker_a = Worker::new(Profile::base).await;
+        let worker_b = Worker::new(Profile::base).await;
 
         Bot {
             enable: CancellationToken::new(),
             rooms: Arc::new(Mutex::new(vec![])),
             login: client,
-            worker_list: vec![], //vec![worker_a, worker_b],
+            worker_list: Arc::new(Mutex::new(vec![worker_a, worker_b])), //,
         }
     }
 
@@ -77,6 +77,7 @@ impl Bot {
         }
     }
 
+    //consume all 
     pub async fn start(mut self) {
         //call disable to cancel sync
         self.enable = CancellationToken::new(); //to be sure token enable
@@ -108,9 +109,12 @@ impl Bot {
         //FUCK YOU add_handler_context !!!
         let romba = self.rooms.clone();
         tokio::spawn(async move {
+            let vcs = self.worker_list;
             loop {
                 let value = rx.recv().await.expect("nobody sending ?");
-                Bot::route_event(value, &romba).await;
+                    let cloned_data = *vcs.clone().lock().unwrap();
+        
+                Bot::route_event(value, &romba,cloned_data).await;
             }
         });
 
@@ -139,28 +143,32 @@ impl Bot {
     }
 
     //tout ce qui est émit ou recus par une room
-    async fn route_event(bundle: ctx, rooms: &Arc<std::sync::Mutex<Vec<room>>>) {
+    async fn route_event(bundle: ctx, rooms: &Arc<std::sync::Mutex<Vec<room>>>,workerlist: Vec<Worker>) {
         //unwrap context
         let ev = bundle.ev;
         let room = bundle.room;
 
         let roomid = room.room_id();
-        let selected_room;
+        let selected_room:&mut room;
 
         //create new room if needed
-        {
+        // {
             let mut roomlist_LOCKED = rooms.lock().unwrap();
             if !roomlist_LOCKED.iter().any(|obj| obj.id == roomid) {
                 let str = Box::new("azer".to_string());
                 // let var = Vec::new(str);
-                roomlist_LOCKED.push(room { id: roomid.into(),message:Arc::new(Mutex::new(vec![]))});
+                  
+                let mut locked = workerlist;
+                // .lock().unwrap();
+                let azer = locked.remove(0);
+                roomlist_LOCKED.push(room { id: roomid.into(),message:Arc::new(Mutex::new(vec![])),worker:azer});
                 // ,answer:vec![].into(),message:vec![].into(),worker:Worker::new(Profile::base).await.into()});
                 println!("new room handled")
                 //need to attash worker
             }
             //assign room
-            selected_room = roomlist_LOCKED.iter().find(|obj| obj.id == roomid).unwrap().message.clone();
-        }
+            selected_room  = roomlist_LOCKED.iter_mut().find(|obj| obj.id == roomid).unwrap();
+        // }
 
 
         match &ev.as_original().unwrap().content.msgtype {
@@ -171,12 +179,14 @@ impl Bot {
                     Some(data) => data.body,
                     None => msg.body,
                 };
-                let mut selected_room = selected_room.lock().unwrap();
                 println!("{}", message);
                 if message=="cum" {
-                    println!("HISTORIQUE:{:?}",selected_room);
+                    let hist = selected_room.message.lock().unwrap();
+                    println!("HISTORIQUE:{:?}",hist);
+                    selected_room.worker.interaction(hist.last().unwrap()).await;
+
                 }else {   
-                    selected_room.push(message.into());
+                    selected_room.message.lock().unwrap().push(message.into());
                 }
                 //find Client with id
                 //append message
