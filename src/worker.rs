@@ -9,7 +9,7 @@ use std::{
     collections::VecDeque,
     io::{self, Write},
     process::Stdio,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 pub struct Worker {
@@ -116,7 +116,7 @@ impl Worker {
                     }
                 }
                 Some(Err(e)) => {
-                    eprintln!("error IO");
+                    eprintln!("error IO {:?}",e);
                     break;
                 }
                 None => {
