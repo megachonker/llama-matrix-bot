@@ -51,7 +51,7 @@ impl Worker {
 
     async fn question(&mut self, data: &str) {
         //faire des check ici
-        print!("{}", data);
+        print!("Question:{}", data);
         self.stdin
             .write(data.as_bytes())
             .await

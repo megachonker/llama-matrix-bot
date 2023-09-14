@@ -2,10 +2,7 @@ use matrix_sdk::{
     deserialized_responses::SyncResponse, ruma::events::room::message::MessageType, LoopCtrl,
 };
 
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use matrix_sdk::{
     config::SyncSettings,
@@ -16,6 +13,7 @@ use matrix_sdk::{
 use tokio::{
     join, select,
     sync::mpsc::{self, Receiver},
+    sync::Mutex,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -27,7 +25,7 @@ use crate::{
 pub struct Bot {
     enable: CancellationToken,
     //client
-    rooms: Vec<Arc<Mutex<BotRoom>>>,
+    rooms: Arc<Mutex<Vec<Arc<Mutex<BotRoom>>>>>,
     worker_list: Arc<Mutex<Vec<Worker>>>,
     login: Client,
 }
@@ -53,13 +51,13 @@ impl Bot {
 
         //reating some worker
         let worker_a = Worker::new(Profile::Base).await;
-        let worker_b = Worker::new(Profile::Base).await;
+        // let worker_b = Worker::new(Profile::Base).await;
 
         Bot {
             enable: CancellationToken::new(),
-            rooms: vec![],
+            rooms: Arc::new(Mutex::new(vec![])),
             login: client,
-            worker_list: Arc::new(Mutex::new(vec![worker_a, worker_b])), //,
+            worker_list: Arc::new(Mutex::new(vec![worker_a])), //,
         }
     }
 
@@ -71,6 +69,13 @@ impl Bot {
 
     //consume all
     pub async fn start(mut self) {
+        // {
+        //     let mut azer =  self.worker_list.lock().await;
+        //     let mut azer  = azer[0].interaction("combien de plannète en france ?").await;
+        //     println!("NB PLANETE=>{}",azer);
+
+        // }
+
         //call disable to cancel sync
         self.enable = CancellationToken::new(); //to be sure token enable
 
@@ -100,17 +105,14 @@ impl Bot {
         //handle new message in rooter async
         //FUCK YOU add_handler_context !!!
         tokio::spawn(async move {
-            let vcs = self.worker_list;
             loop {
                 let value = rx.recv().await.expect("nobody sending ?");
-                let cloned_data = *vcs.clone().lock().unwrap();
-
-                Bot::route_event(value, &self.rooms, cloned_data).await;
+                Bot::route_event(value, &self.rooms, &self.worker_list).await;
             }
         });
 
         //start sync can be cancel by sync stop or can by async without await
-        Bot::sync_start(&self.login, &self.enable, self.rooms).await;
+        Bot::sync_start(&self.login, &self.enable).await;
     }
 
     //tout ce qui est recus par server
@@ -120,51 +122,63 @@ impl Bot {
         loop {
             let data = rx.recv().await.expect("errr recv route data");
             data; //<= to use after
-            // println!("-------------------------------------");
-            // println!("{:?}", data.presence.events);
+                  // println!("-------------------------------------");
+                  // println!("{:?}", data.presence.events);
         }
     }
 
     //tout ce qui est émit ou recus par une room
     async fn route_event(
         bundle: CtxEventRoom,
-        rooms: &Vec<Arc<std::sync::Mutex<BotRoom>>>,
-        workerlist: Vec<Worker>,
+        bot_rooms: &Arc<Mutex<Vec<Arc<Mutex<BotRoom>>>>>,
+        workers_list: &Arc<Mutex<Vec<Worker>>>,
     ) {
         //unwrap context
-        let ev = bundle.ev;
         let room = bundle.room;
 
         let roomid = room.room_id();
-        let selected_room: &mut BotRoom;
+        let mut current_room_arc=None;
 
         //create new room if needed
         {
-            let mut roomlist_LOCKED = rooms.lock().unwrap();
-            if !roomlist_LOCKED.iter().any(|obj| obj.id == roomid) {
-                let str = Box::new("azer".to_string());
-                // let var = Vec::new(str);
+            let mut roomlist_locked = bot_rooms.lock().await;
 
-                let mut locked = workerlist;
-                // .lock().unwrap();
-                let azer = locked.remove(0);
-                roomlist_LOCKED.push(BotRoom {
+            let mut room_exists = false;
+
+            // Check if room exists
+            for room in roomlist_locked.iter() {
+                if room.lock().await.id == roomid {
+                    room_exists = true;
+                    break;
+                }
+            }
+        
+            //create new bot_room if needed
+            if !room_exists {
+                let selected_worker = workers_list.lock().await.remove(0);
+        
+                roomlist_locked.push(Arc::new(Mutex::new(BotRoom {
                     id: roomid.into(),
                     message: Arc::new(Mutex::new(vec![])),
-                    worker: azer,
-                });
-                // ,answer:vec![].into(),message:vec![].into(),worker:Worker::new(Profile::base).await.into()});
-                println!("new room handled")
-                //need to attash worker
+                    worker: selected_worker,
+                })));
+        
+                println!("new room handled");
             }
-            //assign room
-            selected_room = roomlist_LOCKED
-                .iter_mut()
-                .find(|obj| obj.id == roomid)
-                .unwrap();
-        }
 
-        match &ev.as_original().unwrap().content.msgtype {
+            //find actual room
+            for room in roomlist_locked.iter() {
+                if room.lock().await.id == roomid {
+                    current_room_arc = Some(Arc::clone(room));
+                    break;
+                }
+            }
+
+        }
+        let current_room_arc = current_room_arc.expect("room non trouver ERR");
+        let mut current_room = current_room_arc.lock().await;
+
+        match &bundle.ev.as_original().unwrap().content.msgtype {
             // matrix_sdk::ruma::events::room::message::MessageType::Notice()
             MessageType::Text(message) => {
                 let msg = message.clone();
@@ -174,11 +188,15 @@ impl Bot {
                 };
                 println!("{}", message);
                 if message == "cum" {
-                    let hist = selected_room.message.lock().unwrap();
+                    let hist;
+                    {
+                        hist = current_room.message.lock().await.clone();
+                    }
                     println!("HISTORIQUE:{:?}", hist);
-                    selected_room.worker.interaction(hist.last().unwrap()).await;
+
+                    current_room.worker.interaction(hist.last().unwrap()).await;
                 } else {
-                    selected_room.message.lock().unwrap().push(message.into());
+                    current_room.message.lock().await.push(message.into());
                 }
                 //find Client with id
                 //append message
@@ -193,10 +211,10 @@ impl Bot {
     }
 
     //get deleted when sync stoped
-    async fn sync(login: Client, rooms: Arc<std::sync::Mutex<Vec<BotRoom>>>) {
+    async fn sync(login: Client) {
         let (tx, rx) = mpsc::channel::<SyncResponse>(10);
         let sync_channel = &tx;
-        let f1 = Bot::route_sync(rx, rooms);
+        let f1 = Bot::route_sync(rx);
         let f2 = login //fuckyou sinc setting
             .sync_with_callback(SyncSettings::default(), |response| async move {
                 let tx = sync_channel;
@@ -214,19 +232,14 @@ impl Bot {
         });
     }
 
-    async fn sync_start(
-        login: &Client,
-        enable: &CancellationToken,
-        rooms: Arc<std::sync::Mutex<Vec<BotRoom>>>,
-    ) -> tokio::task::JoinHandle<()> {
+    async fn sync_start(login: &Client, enable: &CancellationToken) -> tokio::task::JoinHandle<()> {
         let login = login.clone();
-        let rooms = rooms.clone();
         let token = enable.clone();
 
         return tokio::spawn(async move {
             select! {
                 _ = token.cancelled() => {println!("Sync Off")}
-                _ = Bot::sync(login,rooms) => {}
+                _ = Bot::sync(login) => {}
             }
         });
     }
