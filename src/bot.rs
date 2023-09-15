@@ -33,7 +33,7 @@ pub struct Bot {
 struct BotRoom {
     id: Box<RoomId>,
     message: Arc<Mutex<Vec<String>>>,
-    worker: Worker,
+    worker: Arc<Mutex<Worker>>,
 }
 
 //permet de déplacer les event
@@ -51,13 +51,13 @@ impl Bot {
 
         //reating some worker
         let worker_a = Worker::new(Profile::Base).await;
-        // let worker_b = Worker::new(Profile::Base).await;
+        let worker_b = Worker::new(Profile::Base).await;
 
         Bot {
             enable: CancellationToken::new(),
             rooms: Arc::new(Mutex::new(vec![])),
             login: client,
-            worker_list: Arc::new(Mutex::new(vec![worker_a])), //,
+            worker_list: Arc::new(Mutex::new(vec![worker_a, worker_b])), //,
         }
     }
 
@@ -134,49 +134,40 @@ impl Bot {
         workers_list: &Arc<Mutex<Vec<Worker>>>,
     ) {
         //unwrap context
-        let room = bundle.room;
 
-        let roomid = room.room_id();
-        let mut current_room_arc=None;
-
+        let roomid = bundle.room.room_id();
+        let bot_room;
         //create new room if needed
         {
             let mut roomlist_locked = bot_rooms.lock().await;
+            let mut current_room_arc = None;
 
-            let mut room_exists = false;
-
-            // Check if room exists
+            //find the event room to boot room
+            println!("[A]");
             for room in roomlist_locked.iter() {
                 if room.lock().await.id == roomid {
-                    room_exists = true;
+                    current_room_arc = Some(Arc::clone(room)); //Stay lock from her ?
                     break;
                 }
             }
-        
-            //create new bot_room if needed
-            if !room_exists {
+            println!("[--A--]");
+
+
+            if let Some(room) = current_room_arc {
+                bot_room = room;
+            } else {
                 let selected_worker = workers_list.lock().await.remove(0);
-        
-                roomlist_locked.push(Arc::new(Mutex::new(BotRoom {
+
+                bot_room = Arc::new(Mutex::new(BotRoom {
                     id: roomid.into(),
                     message: Arc::new(Mutex::new(vec![])),
-                    worker: selected_worker,
-                })));
-        
+                    worker: Arc::new(Mutex::new(selected_worker)),
+                }));
+
+                roomlist_locked.push(bot_room.clone());
                 println!("new room handled");
             }
-
-            //find actual room
-            for room in roomlist_locked.iter() {
-                if room.lock().await.id == roomid {
-                    current_room_arc = Some(Arc::clone(room));
-                    break;
-                }
-            }
-
         }
-        let current_room_arc = current_room_arc.expect("room non trouver ERR");
-        let mut current_room = current_room_arc.lock().await;
 
         match &bundle.ev.as_original().unwrap().content.msgtype {
             // matrix_sdk::ruma::events::room::message::MessageType::Notice()
@@ -188,15 +179,21 @@ impl Bot {
                 };
                 println!("{}", message);
                 if message == "cum" {
-                    let hist;
-                    {
-                        hist = current_room.message.lock().await.clone();
-                    }
-                    println!("HISTORIQUE:{:?}", hist);
+                    tokio::spawn(async move {
+                        let bot_room = bot_room.clone();
+                        let mut current_room = bot_room.lock().await;
 
-                    current_room.worker.interaction(hist.last().unwrap()).await;
+                        let hist = current_room.message.lock().await.clone();
+                        println!("HISTORIQUE:{:?}", hist);
+                        
+                        let  worker = current_room.worker.clone();
+                        drop(current_room);
+
+                        let mut worker = worker.lock().await;
+                        worker.interaction(hist.last().unwrap()).await;
+                    });
                 } else {
-                    current_room.message.lock().await.push(message.into());
+                    bot_room.lock().await.message.lock().await.push(message.into());
                 }
                 //find Client with id
                 //append message
