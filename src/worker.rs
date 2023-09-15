@@ -93,7 +93,7 @@ impl Worker {
             //Get imput
             let ret = tokio::select! {
                 opt = reader.read_exact(&mut buffer) => Some(opt),
-                _ = tokio::time::sleep(Duration::from_secs(20)) =>None, //<============== Wait NEed to cutsome value
+                _ = tokio::time::sleep(Duration::from_secs(45)) =>None, //<============== Wait NEed to cutsome value
             };
 
             //Process input
@@ -135,7 +135,10 @@ impl Worker {
     pub async fn interaction(&mut self, question: &str) -> String{
         let formated = format!("{}\n", question);
         self.question(formated.as_str()).await;
-        self.reponse().await.iter().collect()
+        let answer:String = self.reponse().await.iter().collect();
+
+        //filter answer
+        answer.replace("User:", "").replace("Llama:", "").replace("User::", "").replace("Llama::", "")
     }
 
     pub async fn quit(mut self) {

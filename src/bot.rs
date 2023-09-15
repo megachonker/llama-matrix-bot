@@ -1,5 +1,7 @@
 use matrix_sdk::{
-    deserialized_responses::SyncResponse, ruma::events::room::message::MessageType, LoopCtrl,
+    deserialized_responses::SyncResponse,
+    ruma::events::room::message::{MessageType, RoomMessageEventContent},
+    LoopCtrl,
 };
 
 use std::{sync::Arc, time::Duration};
@@ -133,6 +135,10 @@ impl Bot {
         bot_rooms: &Arc<Mutex<Vec<Arc<Mutex<BotRoom>>>>>,
         workers_list: &Arc<Mutex<Vec<Worker>>>,
     ) {
+        if bundle.room.client().user_id().unwrap() == bundle.ev.sender() {
+            return;
+        }
+
         //unwrap context
 
         let roomid = bundle.room.room_id();
@@ -143,15 +149,12 @@ impl Bot {
             let mut current_room_arc = None;
 
             //find the event room to boot room
-            println!("[A]");
             for room in roomlist_locked.iter() {
                 if room.lock().await.id == roomid {
                     current_room_arc = Some(Arc::clone(room)); //Stay lock from her ?
                     break;
                 }
             }
-            println!("[--A--]");
-
 
             if let Some(room) = current_room_arc {
                 bot_room = room;
@@ -178,23 +181,38 @@ impl Bot {
                     None => msg.body,
                 };
                 println!("{}", message);
-                if message == "cum" {
-                    tokio::spawn(async move {
-                        let bot_room = bot_room.clone();
-                        let mut current_room = bot_room.lock().await;
+                // if message == "cum" {
+                tokio::spawn(async move {
+                    let bot_room = bot_room.clone();
+                    let current_room = bot_room.lock().await;
 
-                        let hist = current_room.message.lock().await.clone();
-                        println!("HISTORIQUE:{:?}", hist);
-                        
-                        let  worker = current_room.worker.clone();
-                        drop(current_room);
+                    let mut hist = current_room.message.lock().await.clone();
+                    hist.push(message.into());
+                    println!("HISTORIQUE:{:?}", hist);
 
-                        let mut worker = worker.lock().await;
-                        worker.interaction(hist.last().unwrap()).await;
-                    });
-                } else {
-                    bot_room.lock().await.message.lock().await.push(message.into());
-                }
+                    let worker = current_room.worker.clone();
+                    drop(current_room);
+
+                    let mut worker = worker.lock().await;
+                    let answer = worker.interaction(hist.last().unwrap()).await;
+                    match bundle.room {
+                        Room::Invited(_) => {}
+                        Room::Joined(room) => {
+                            let llama_answer = RoomMessageEventContent::text_plain(answer);
+                            room.send(llama_answer, None).await.unwrap();
+                        }
+                        Room::Left(_) => {}
+                    }
+                });
+                // } else {
+                //     bot_room
+                //         .lock()
+                //         .await
+                //         .message
+                //         .lock()
+                //         .await
+                //         .push(message.into());
+                // }
                 //find Client with id
                 //append message
             }
