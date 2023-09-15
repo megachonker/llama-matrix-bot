@@ -1,6 +1,6 @@
 use matrix_sdk::{
     deserialized_responses::SyncResponse,
-    ruma::events::room::message::{MessageType, RoomMessageEventContent},
+    ruma::events::room::message::{MessageType, RoomMessageEventContent, TextMessageEventContent},
     LoopCtrl,
 };
 
@@ -181,39 +181,11 @@ impl Bot {
                     None => msg.body,
                 };
                 println!("{}", message);
-                // if message == "cum" {
-                tokio::spawn(async move {
-                    let bot_room = bot_room.clone();
-                    let current_room = bot_room.lock().await;
-
-                    let mut hist = current_room.message.lock().await.clone();
-                    hist.push(message.into());
-                    println!("HISTORIQUE:{:?}", hist);
-
-                    let worker = current_room.worker.clone();
-                    drop(current_room);
-
-                    let mut worker = worker.lock().await;
-                    let answer = worker.interaction(hist.last().unwrap()).await;
-                    match bundle.room {
-                        Room::Invited(_) => {}
-                        Room::Joined(room) => {
-                            let llama_answer = RoomMessageEventContent::text_plain(answer);
-                            room.send(llama_answer, None).await.unwrap();
-                        }
-                        Room::Left(_) => {}
-                    }
-                });
-                // } else {
-                //     bot_room
-                //         .lock()
-                //         .await
-                //         .message
-                //         .lock()
-                //         .await
-                //         .push(message.into());
-                // }
-                //find Client with id
+                if message == "!reset" {
+                    Bot::rcv_reset(bot_room,workers_list).await;
+                }else {
+                    Bot::rcv_message(bundle,bot_room,message);
+                }
                 //append message
             }
             MessageType::Emote(emo) => {
@@ -224,6 +196,48 @@ impl Bot {
             }
         }
     }
+
+    //BOOOT cmd
+    
+    //nomal
+    fn rcv_message(bundle: CtxEventRoom,bot_room:Arc<Mutex<BotRoom>>,message:String){
+        tokio::spawn(async move {
+            let bot_room = bot_room.clone();
+            let current_room = bot_room.lock().await;
+
+            let mut hist = current_room.message.lock().await.clone();
+            hist.push(message);
+            println!("HISTORIQUE:{:?}", hist);
+
+            let worker = current_room.worker.clone();
+            drop(current_room);
+
+            let mut worker = worker.lock().await;
+            let answer = worker.interaction(hist.last().unwrap()).await;
+            match bundle.room {
+                Room::Invited(_) => {}
+                Room::Joined(room) => {
+                    let llama_answer = RoomMessageEventContent::text_plain(answer);
+                    room.send(llama_answer, None).await.unwrap();
+                }
+                Room::Left(_) => {}
+            }
+        });
+    }
+
+    async fn rcv_reset(bot_room:Arc<Mutex<BotRoom>>,workers:&Arc<Mutex<Vec<Worker>>>){
+        let selected_worker = workers.lock().await.remove(0);
+        let mut room_lock = bot_room.lock().await;
+        room_lock.worker.lock().await.quit().await;
+        room_lock.worker = Arc::new(Mutex::new(selected_worker));
+    }
+
+    // async fn rcv_reset(bot_room:Arc<Mutex<BotRoom>>,workers:&Arc<Mutex<Vec<Worker>>>){
+    //     let selected_worker = workers.lock().await.remove(0);
+    //     let mut room_lock = bot_room.lock().await;
+    //     room_lock.worker.lock().await.quit().await;
+    //     room_lock.worker = Arc::new(Mutex::new(selected_worker));
+    // }
 
     //get deleted when sync stoped
     async fn sync(login: Client) {

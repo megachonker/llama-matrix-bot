@@ -93,7 +93,7 @@ impl Worker {
             //Get imput
             let ret = tokio::select! {
                 opt = reader.read_exact(&mut buffer) => Some(opt),
-                _ = tokio::time::sleep(Duration::from_secs(45)) =>None, //<============== Wait NEed to cutsome value
+                _ = tokio::time::sleep(Duration::from_secs(10)) =>None, //<============== Wait NEed to cutsome value
             };
 
             //Process input
@@ -141,7 +141,7 @@ impl Worker {
         answer.replace("User:", "").replace("Llama:", "").replace("User::", "").replace("Llama::", "")
     }
 
-    pub async fn quit(mut self) {
+    pub async fn quit(&mut self) {
         self.process.kill().await.expect("cannot kill");
         // self.process.wait().await.expect("je ne peut pas attendre que je meur apres etre mort !");
     }
