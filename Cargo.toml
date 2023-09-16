@@ -10,4 +10,5 @@ anyhow = "1.0.72"
 matrix-sdk = "0.6.2"
 serde = "1.0.174"
 serde_yaml = "0.9.25"
-tokio = { version = "1.29.1", features = ["macros", "rt-multi-thread", "io-util"] }
+tokio = { version = "1.32.0", features = ["full","macros", "rt-multi-thread", "io-util"] }
+tokio-util = "0.7.8"

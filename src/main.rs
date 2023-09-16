@@ -1,269 +1,238 @@
-use matrix_sdk::room::{Joined, Room};
-use matrix_sdk::ruma::events::room::message::{RoomMessageEventContent, SyncRoomMessageEvent};
-use matrix_sdk::{config::SyncSettings, Client};
-use serde::Deserialize;
-use std::collections::VecDeque;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
-use tokio::task;
-#[derive(Debug, Deserialize, Clone)]
-struct Config {
-    matrix: MatrixConfig,
-    path: String,
-    command_args: CommandArgs,
-}
+mod worker;
+mod bot;
+use std::thread;
+use std::time::Duration;
 
-#[derive(Debug, Deserialize, Clone)]
-struct MatrixConfig {
-    username: String,
-    password: String,
-    homeserver_url: String,
-}
+use bot::Bot;
+// use worker::Worker;
+// use worker::profile::Profile;
+pub(crate) mod config;
 
-#[derive(Debug, Deserialize, Clone)]
-struct CommandArgs {
-    ctx_size: u32,
-    temp: f64,
-    top_k: u32,
-    top_p: f64,
-    repeat_last_n: u32,
-    batch_size: u32,
-    repeat_penalty: f64,
-    model: String,
-    threads: u32,
-    n_predict: u32,
-    interactive: bool,
-    reverse_prompt: String,
-    prompt: String,
-}
+// use std::{
+//     fs::File,
+//     io::{BufRead, BufReader, Read, Write},
+//     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+//     sync::{mpsc::{Receiver, Sender}, Arc, Mutex}, collections::VecDeque,
+// };
 
-//command
-// !help
-// !restart
-// !take
-// !give
-// !ftake //oom kill somone
+// use serde::Deserialize;
 
-enum ChildAction {
-    Restart,
-    Ftake,
-    Take,
-    Give,
-}
 
-enum MasterAction {
-    Ack(Child),
-    Release,
-}
+// use matrix_sdk::{
+//     config::SyncSettings,
+//     room::{Joined, Room},
+//     ruma::events::room::message::{RoomMessageEventContent, SyncRoomMessageEvent},
+//     Client,
+// };
 
-//lunch 
-struct Master {
-    chats: Vec<ShitChat>,
-    ressources: [Child; 2],
-}
 
-impl Master {
-    fn new_sc() {
-        //create pipe
-        //create shitchat
-        todo!()
-    }
-}
 
-struct ChildSC {
-    room: Joined,
-    to_sc: Sender<MasterAction>,
-    from_sc: Receiver<ChildAction>,
-    shitchat: Child,
-}
+// //command
+// // !help
+// // !restart
+// // !take
+// // !give
+// // !ftake //oom kill somone
 
-//user are created when receive message
-struct ShitChat {
-    to_master: Sender<ChildAction>,
-    from_master: Receiver<MasterAction>,
-    room: Joined, //recognize room
-    chat_input: VecDeque<String>,
-    llama_instance: Child, //borrow a instance
-}
+// async fn login(conf: MatrixConfig) -> anyhow::Result<Client> {
+//     let client = Client::builder()
+//         .homeserver_url(conf.homeserver_url)
+//         .build()
+//         .await?;
 
-//input room
-fn rooting_room() {
-    //search for a matching room | hashmap ?
-    //else
-    //create new child_sc
-}
+//     client
+//         .login_username(&conf.username, &conf.password)
+//         .initial_device_display_name("getting started bot")
+//         .send()
+//         .await?;
 
-fn read_config_from_file() -> Result<Config, Box<dyn std::error::Error>> {
-    let mut file = File::open("config.yaml")?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
+//     println!("logged in as {}", conf.username);
+//     return Ok(client);
+// }
 
-    let config: Config = serde_yaml::from_str(&contents)?;
 
-    Ok(config)
-}
+// async fn handlers(
+//     mut token: String,
+//     client: Client,
+//     stdout: ChildStdout,
+//     stdin: Arc<Mutex<ChildStdin>>,
+// ) -> String {
+//     let (tx, mut rx) = mpsc::channel(30);
+//     let restart_button = Arc::new(Mutex::new(false));
+//     let restart_button_mv = restart_button.clone();
+//     task::spawn(async move {
+//         let bufreader = BufReader::new(stdout);
+//         let lines = bufreader.lines();
+//         let room: Joined = rx.recv().await.unwrap();
+//         for line in lines {
+//             let answer = line.unwrap();
+//             println!("LLAMA-OUT:{}", answer);
+//             let llama_answer = RoomMessageEventContent::text_plain(answer);
+//             room.send(llama_answer, None).await.unwrap();
+//         }
+//     });
 
-fn lunch_LLM(command_args: &CommandArgs, program_executable: &str) -> Child {
-    let mut cmd = Command::new(program_executable);
+//     let handle = client.add_event_handler({
+//         //TRIKS
+//         let restart_button_mv = restart_button_mv.clone();
+//         let stdin: Arc<Mutex<ChildStdin>> = stdin.clone();
+//         let tx = tx.clone();
+//         move |ev: SyncRoomMessageEvent, room: Room| {
+//             //TRIKS
+//             let tx = tx.clone();
+//             let stdin = stdin.clone();
+//             let restart_button_mv = restart_button_mv.clone();
+//             async move {
+//                 //filtre les message envoyer a soit meme
+//                 if room.client().user_id().unwrap() == ev.sender() {
+//                     return;
+//                 }
+//                 to_llama(ev, stdin, restart_button_mv);
+//                 match room {
+//                     Room::Joined(room) => {
+//                         //data a send to user
+//                         tx.send(room).await.unwrap();
+//                     }
+//                     _ => println!("event on unjoined room"),
+//                 }
+//             }
+//         }
+//     });
 
-    cmd.arg("--ctx_size").arg(command_args.ctx_size.to_string());
-    cmd.arg("--temp").arg(command_args.temp.to_string());
-    cmd.arg("--top_k").arg(command_args.top_k.to_string());
-    cmd.arg("--top_p").arg(command_args.top_p.to_string());
-    cmd.arg("--repeat_last_n")
-        .arg(command_args.repeat_last_n.to_string());
-    cmd.arg("--batch_size")
-        .arg(command_args.batch_size.to_string());
-    cmd.arg("--repeat_penalty")
-        .arg(command_args.repeat_penalty.to_string());
-    cmd.arg("--model").arg(&command_args.model);
-    cmd.arg("--threads").arg(command_args.threads.to_string());
-    cmd.arg("--n_predict")
-        .arg(command_args.n_predict.to_string());
-    if command_args.interactive {
-        cmd.arg("--interactive");
-    }
-    cmd.arg("--reverse-prompt")
-        .arg(&command_args.reverse_prompt);
-    cmd.arg("--prompt").arg(&command_args.prompt);
-    cmd.stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("failed to lunch LLaMa")
-}
+//     //handler to accept new people
 
-async fn login(conf: MatrixConfig) -> anyhow::Result<Client> {
-    let client = Client::builder()
-        .homeserver_url(conf.homeserver_url)
-        .build()
-        .await?;
-
-    client
-        .login_username(&conf.username, &conf.password)
-        .initial_device_display_name("getting started bot")
-        .send()
-        .await?;
-
-    println!("logged in as {}", conf.username);
-    return Ok(client);
-}
-
-fn to_llama(
-    ev: SyncRoomMessageEvent,
-    stdin: Arc<Mutex<std::process::ChildStdin>>,
-    restart_button_mv: Arc<Mutex<bool>>,
-) {
-    match &ev.as_original().unwrap().content.msgtype {
-        matrix_sdk::ruma::events::room::message::MessageType::Text(m) => {
-            println!("SEND:{}", m.body);
-            if m.body.contains("!!!FuckMeDaddy!!!") {
-                println!("EMERGENCY CUM CUMMED");
-                *restart_button_mv.lock().unwrap() = true;
-            }
-            let azerazerazer = format!("{}\n", m.body);
-            let question = azerazerazer.as_bytes();
-            stdin.lock().unwrap().write_all(question).unwrap();
-        }
-        _ => println!("fuckyou"),
-    }
-}
-
-async fn handlers(
-    mut token: String,
-    client: Client,
-    stdout: ChildStdout,
-    stdin: Arc<Mutex<ChildStdin>>,
-) -> String {
-    let (tx, mut rx) = mpsc::channel(30);
-    let restart_button = Arc::new(Mutex::new(false));
-    let restart_button_mv = restart_button.clone();
-    task::spawn(async move {
-        let bufreader = BufReader::new(stdout);
-        let lines = bufreader.lines();
-        let room: Joined = rx.recv().await.unwrap();
-        for line in lines {
-            let answer = line.unwrap();
-            println!("LLAMA-OUT:{}", answer);
-            let llama_answer = RoomMessageEventContent::text_plain(answer);
-            room.send(llama_answer, None).await.unwrap();
-        }
-    });
-    let handle = client.add_event_handler({
-        //TRIKS
-        let restart_button_mv = restart_button_mv.clone();
-        let stdin: Arc<Mutex<ChildStdin>> = stdin.clone();
-        let tx = tx.clone();
-        move |ev: SyncRoomMessageEvent, room: Room| {
-            //TRIKS
-            let tx = tx.clone();
-            let stdin = stdin.clone();
-            let restart_button_mv = restart_button_mv.clone();
-            async move {
-                //filtre les message envoyer a soit meme
-                if room.client().user_id().unwrap() == ev.sender() {
-                    return;
-                }
-                to_llama(ev, stdin, restart_button_mv);
-                match room {
-                    Room::Joined(room) => {
-                        //data a send to user
-                        tx.send(room).await.unwrap();
-                    }
-                    _ => println!("event on unjoined room"),
-                }
-            }
-        }
-    });
-
-    //handler to accept new people
-
-    while !*restart_button.lock().unwrap() {
-        token = client
-            .sync_once(SyncSettings::default().token(token))
-            .await
-            .unwrap()
-            .next_batch;
-    }
-    println!("!!!FuckMeDaddy!!! --- EXIT --- !!!FuckMeDady!!!");
-    client.remove_event_handler(handle);
-    token
-}
+//     while !*restart_button.lock().unwrap() {
+//         token = client
+//             .sync_once(SyncSettings::default().token(token))
+//             .await
+//             .unwrap()
+//             .next_batch;
+//     }
+//     println!("!!!FuckMeDaddy!!! --- EXIT --- !!!FuckMeDady!!!");
+//     client.remove_event_handler(handle);
+//     token
+// }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    // Read conf file
-    let conf = read_config_from_file().expect("failed to read conf file");
+async fn main() {
+    // console_subscriber::init();
+// -> anyhow::Result<()> {
+    // // Read conf file
+    // let conf = read_config_from_file().expect("failed to read conf file");
 
-    // generate client and login
-    let client = login(conf.matrix).await?;
+    // // generate client and login
+    // let client = login(conf.matrix).await?;
 
-    //get first token
-    let mut token = client
-        .sync_once(SyncSettings::default())
-        .await
-        .unwrap()
-        .next_batch;
+    // //get first token
+    // let mut token = client
+    //     .sync_once(SyncSettings::default())
+    //     .await
+    //     .unwrap()
+    //     .next_batch;
 
-    //main loop
-    loop {
-        //lunch LLM
-        let mut llm_proc = lunch_LLM(&conf.command_args, &conf.path);
 
-        // Take Redirection
-        let stdin = Arc::new(Mutex::new(
-            llm_proc.stdin.take().expect("Failed to open stdin"),
-        ));
-        let stdout = llm_proc.stdout.take().expect("Failed to open stdout");
-        
-        //MAIN HANDLER
-        token = handlers(token, client.clone(), stdout, stdin).await;
+    // //.create
+    // let mut my_master = Master{session:client, chats:vec![],ressources:vec![]};
+    // my_master.new_runner(&conf.command_args, &conf.path);
+    // //start new LLM instance
+    // //.new
+    // //.new
 
-        //clean process
-        llm_proc.kill().unwrap();
-        llm_proc.wait().unwrap();
-    }
+    
+
+    // let mut azer = Vec::<String>::new();
+    // let mut work = Worker::new(Profile::base).await;
+    // azer.push(work.interaction("what color of a orange ?").await);
+    // azer.push(work.interaction("what is the color of a apple ?").await);
+    // work.quit().await;
+
+    
+
+    let instance = Bot::new().await;
+    instance.start().await;
+    // println!("Sync1");
+    // instance.sync_start_stop().await;
+loop {
+    thread::sleep(Duration::from_secs(9999999));
 }
+    // Worker::new(Profile::from_config(Config::default()));
+    // Worker::new(Profile::raw(vec!["ls","-l","fucked"].iter().map(ToString::to_string).collect()));
+    // Worker::new(Default::default());
+    // //.switch rooting
+
+    // //main loop
+    // loop {
+    //     //lunch LLM
+    //     let mut llm_proc = lunch_LLM(&conf.command_args, &conf.path);
+
+    //     // Take Redirection
+    //     let stdin = Arc::new(Mutex::new(
+    //         llm_proc.stdin.take().expect("Failed to open stdin"),
+    //     ));
+    //     let stdout = llm_proc.stdout.take().expect("Failed to open stdout");
+
+    //     //MAIN HANDLER
+    //     token = handlers(token, client.clone(), stdout, stdin).await;
+
+    //     //clean process
+    //     llm_proc.kill().unwrap();
+    //     llm_proc.wait().unwrap();
+    // }
+    
+}
+// pub async fn handle_event<'a>(mut args: &mut Split<'a, char>, room: Room, ev: &SyncRoomMessageEvent) {
+//     let target = match args.next() {
+//         None => {
+//             room.send(RoomMessageEventContent::text_plain("no target"), None).await.expect("error sending message");
+//             return;
+//         }
+//         Some(str) => str
+//     };
+//     let content = RoomMessageEventContent::text_plain(
+//         format!("*{} pats {}*", ev.sender().to_string(), target)
+//     );
+//     room.send(content, None).await.expect("error sending message");
+// }
+
+
+// pub fn register(client: &Client){
+//     client.add_event_handler(
+//         |ev: SyncRoomMessageEvent, room: Room| {
+//             async move {
+//                 let original = ev.as_original().unwrap();
+//                 let content = original.content.body();
+
+//                 if content.starts_with('!') {
+//                     let mut result = content.split(' ');
+//                     match result.next() {
+//                         Some(str) => {
+//                             match str {
+//                                 "!help" => {
+//                                     help::handle_event(room).await;
+//                                 }
+//                                 "!pat" => {
+//                                     affection::handle_event("pats", &mut result, room, &ev).await;
+//                                 }
+//                                 "!boops" => {
+//                                     affection::handle_event("boops", &mut result, room, &ev).await;
+//                                 }
+//                                 "!boops" => {
+//                                     affection::handle_event("hugs", &mut result, room, &ev).await;
+//                                 }
+//                                 _ => {
+//                                     let content = RoomMessageEventContent::text_plain("Invalid command");
+//                                     room.send(content, None).await.expect("error sending message");
+//                                     return;
+//                                 }
+//                             }
+//                         }
+//                         None => return
+//                     }
+//                 } else {
+//                     return;
+//                 }
+
+//             }
+//         },
+//     );
+// }
