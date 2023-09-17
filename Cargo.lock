@@ -1127,6 +1127,7 @@ name = "llama-bot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures",
  "matrix-sdk",
  "serde",
  "serde_yaml",

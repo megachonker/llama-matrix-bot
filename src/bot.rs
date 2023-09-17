@@ -1,6 +1,7 @@
+use futures::future::join_all;
 use matrix_sdk::{
     deserialized_responses::SyncResponse,
-    ruma::events::room::message::{MessageType, RoomMessageEventContent, TextMessageEventContent},
+    ruma::events::room::message::{MessageType, RoomMessageEventContent},
     LoopCtrl,
 };
 
@@ -15,7 +16,7 @@ use matrix_sdk::{
 use tokio::{
     join, select,
     sync::mpsc::{self, Receiver},
-    sync::Mutex,
+    sync::{mpsc::Sender, Mutex},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -28,11 +29,12 @@ pub struct Bot {
     enable: CancellationToken,
     //client
     rooms: Arc<Mutex<Vec<Arc<Mutex<BotRoom>>>>>,
-    worker_list: Arc<Mutex<Vec<Worker>>>,
+    sheduler:Sheduler,
     login: Client,
 }
 
 struct BotRoom {
+    //imply time out for worker to reject
     id: Box<RoomId>,
     message: Arc<Mutex<Vec<String>>>,
     worker: Arc<Mutex<Worker>>,
@@ -45,6 +47,65 @@ struct CtxEventRoom {
     room: Room,
 }
 
+enum ShedulingEvent {
+    Killed,
+}
+
+struct Sheduler {
+    pub tx_event: Sender<ShedulingEvent>,
+    pub rx_worker: Receiver<Worker>,
+}
+
+impl Sheduler {
+    pub async fn new(target: u8) -> Self {
+        //create event channel
+        let (tx_event, rx_event) = mpsc::channel::<ShedulingEvent>(10);
+
+        //create worker channel
+        let (tx_worker, rx_worker) = mpsc::channel::<Worker>(10);
+
+        //lunch worker target
+        let mut handles = Vec::new();
+
+        for a in 0..target {
+            let tx_worker = tx_worker.clone();
+            handles.push(tokio::spawn(
+                async move { 
+                    println!("Start worker:{}",a);
+                    tx_worker.send(Worker::new(Profile::Base).await).await.unwrap();
+                    println!("--{:?} is started--",a);
+                },
+            ));
+        }
+        let _ = join_all(handles);
+        println!("all worker started");
+
+        //start sheduler
+        Sheduler::event_router(tx_worker,rx_event);
+
+        //pass back struct
+        Self { rx_worker,tx_event }
+    }
+
+    fn event_router(tx_worker:Sender<Worker>, mut rx_event:Receiver<ShedulingEvent>){
+        tokio::spawn(async move {
+            loop {
+                let event = rx_event.recv().await.unwrap();
+                match event {
+                    //when one VM is quit
+                    ShedulingEvent::Killed => {
+                        //can put somme rule here
+
+                        //spwawn new one to remplace dead
+                        println!("[Sheduler]: Spawn new worker:");
+                        tx_worker.send(Worker::new(Profile::Base).await).await.unwrap();
+                    }
+                }
+            }
+        });
+    }
+}
+
 impl Bot {
     pub async fn new() -> Self {
         //connect to the home server
@@ -52,14 +113,14 @@ impl Bot {
         let client = Self::login(matrixconf).await;
 
         //reating some worker
-        let worker_a = Worker::new(Profile::Base).await;
-        let worker_b = Worker::new(Profile::Base).await;
+        let sheduler = Sheduler::new(4).await;
 
+        //fill struct
         Bot {
             enable: CancellationToken::new(),
             rooms: Arc::new(Mutex::new(vec![])),
             login: client,
-            worker_list: Arc::new(Mutex::new(vec![worker_a, worker_b])), //,
+            sheduler, //,
         }
     }
 
@@ -71,12 +132,7 @@ impl Bot {
 
     //consume all
     pub async fn start(mut self) {
-        // {
-        //     let mut azer =  self.worker_list.lock().await;
-        //     let mut azer  = azer[0].interaction("combien de plannète en france ?").await;
-        //     println!("NB PLANETE=>{}",azer);
-
-        // }
+        // shedul_event_router
 
         //call disable to cancel sync
         self.enable = CancellationToken::new(); //to be sure token enable
@@ -87,12 +143,12 @@ impl Bot {
 
         //i choose to use channel than context because after data was piped i can do
         //EVERYTHING, in the context the data inside the struct are STUCK like a CUCK
-        let (tx, mut rx) = mpsc::channel::<CtxEventRoom>(10);
+        let (tx_ctx, mut rx_ctx) = mpsc::channel::<CtxEventRoom>(10);
 
         //on message receive
         self.login.add_event_handler({
             move |ev: SyncRoomMessageEvent, room: Room| {
-                let tx = tx.clone();
+                let tx = tx_ctx.clone();
                 async move {
                     //FUCK YOU add_handler_context !!!
                     let playload = CtxEventRoom {
@@ -108,8 +164,8 @@ impl Bot {
         //FUCK YOU add_handler_context !!!
         tokio::spawn(async move {
             loop {
-                let value = rx.recv().await.expect("nobody sending ?");
-                Bot::route_event(value, &self.rooms, &self.worker_list).await;
+                let value = rx_ctx.recv().await.expect("nobody sending ?");
+                Bot::route_event(value, &self.rooms, &mut self.sheduler).await;
             }
         });
 
@@ -123,7 +179,8 @@ impl Bot {
         // mesrooms.push(room {..Default::default()});
         loop {
             let data = rx.recv().await.expect("errr recv route data");
-            data; //<= to use after
+            drop(data); //<= to use after
+            // data; //<= to use after
                   // println!("-------------------------------------");
                   // println!("{:?}", data.presence.events);
         }
@@ -133,7 +190,7 @@ impl Bot {
     async fn route_event(
         bundle: CtxEventRoom,
         bot_rooms: &Arc<Mutex<Vec<Arc<Mutex<BotRoom>>>>>,
-        workers_list: &Arc<Mutex<Vec<Worker>>>,
+        sheduler: &mut Sheduler,
     ) {
         if bundle.room.client().user_id().unwrap() == bundle.ev.sender() {
             return;
@@ -156,10 +213,13 @@ impl Bot {
                 }
             }
 
+            //if room trouver
             if let Some(room) = current_room_arc {
                 bot_room = room;
-            } else {
-                let selected_worker = workers_list.lock().await.remove(0);
+            } 
+            //sinon on en crée une nouvel est on lui donne un worker par def
+            else {
+                let selected_worker = sheduler.rx_worker.recv().await.unwrap();
 
                 bot_room = Arc::new(Mutex::new(BotRoom {
                     id: roomid.into(),
@@ -182,9 +242,9 @@ impl Bot {
                 };
                 println!("{}", message);
                 if message == "!reset" {
-                    Bot::rcv_reset(bot_room,workers_list).await;
-                }else {
-                    Bot::rcv_message(bundle,bot_room,message);
+                    Bot::rcv_reset(bot_room, sheduler).await;
+                } else {
+                    Bot::rcv_message(bundle, bot_room, message);
                 }
                 //append message
             }
@@ -198,9 +258,9 @@ impl Bot {
     }
 
     //BOOOT cmd
-    
+
     //nomal
-    fn rcv_message(bundle: CtxEventRoom,bot_room:Arc<Mutex<BotRoom>>,message:String){
+    fn rcv_message(bundle: CtxEventRoom, bot_room: Arc<Mutex<BotRoom>>, message: String) {
         tokio::spawn(async move {
             let bot_room = bot_room.clone();
             let current_room = bot_room.lock().await;
@@ -225,10 +285,15 @@ impl Bot {
         });
     }
 
-    async fn rcv_reset(bot_room:Arc<Mutex<BotRoom>>,workers:&Arc<Mutex<Vec<Worker>>>){
-        let selected_worker = workers.lock().await.remove(0);
+    async fn rcv_reset(bot_room: Arc<Mutex<BotRoom>>, sheduler: &mut Sheduler) {
         let mut room_lock = bot_room.lock().await;
         room_lock.worker.lock().await.quit().await;
+        
+        println!("SEND KILL");
+        sheduler.tx_event.send(ShedulingEvent::Killed).await.unwrap();
+
+        println!("PICK worker");
+        let selected_worker = sheduler.rx_worker.recv().await.unwrap();
         room_lock.worker = Arc::new(Mutex::new(selected_worker));
     }
 
@@ -250,7 +315,7 @@ impl Bot {
                 tx.send(response).await.expect("err send");
                 LoopCtrl::Continue
             });
-        join!(f1, f2);
+        let _ = join!(f1, f2);
     }
 
     async fn sync_stop(&self, delay: Duration) -> tokio::task::JoinHandle<()> {
