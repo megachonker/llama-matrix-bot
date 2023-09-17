@@ -7,7 +7,7 @@ use tokio::{
 
 use std::{
     collections::VecDeque,
-    io::{self, Write},
+    io::{self, Write, Error},
     process::Stdio,
     time::Duration,
 };
@@ -16,12 +16,15 @@ pub struct Worker {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     process: Child,
+    pub alive: bool,
 }
 
 impl Worker {
     pub async fn new(profile: Profile) -> Self {
         let lunch_args = profile.create_lungh_arg();
         //need to retrive other variable from profile 
+
+        // println!("cmd{:?}",&lunch_args[1..]);
 
         //prompt need to be last arg !
         let mut process = tokio::process::Command::new(&lunch_args.first().expect("LOL ces vide"))
@@ -46,6 +49,7 @@ impl Worker {
             stdin: process.stdin.take().expect("cursed"),
             stdout: buffreader,
             process,
+            alive:true
         }
     }
 
@@ -141,9 +145,9 @@ impl Worker {
         answer.replace("User:", "").replace("Llama:", "").replace("User::", "").replace("Llama::", "")
     }
 
-    pub async fn quit(&mut self) {
-        self.process.kill().await.expect("cannot kill");
-        // self.process.wait().await.expect("je ne peut pas attendre que je meur apres etre mort !");
+    pub async fn quit(&mut self) -> Result<(),Error> {
+        self.alive = false;
+        self.process.kill().await 
     }
 
     async fn read_and_purge_stdout(reader: &mut BufReader<ChildStdout>, argv: Vec<String>) {

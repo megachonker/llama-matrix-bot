@@ -29,7 +29,7 @@ pub struct Bot {
     enable: CancellationToken,
     //client
     rooms: Arc<Mutex<Vec<Arc<Mutex<BotRoom>>>>>,
-    sheduler:Sheduler,
+    sheduler: Sheduler,
     login: Client,
 }
 
@@ -49,6 +49,7 @@ struct CtxEventRoom {
 
 enum ShedulingEvent {
     Killed,
+    Ask(Profile),
 }
 
 struct Sheduler {
@@ -69,36 +70,47 @@ impl Sheduler {
 
         for a in 0..target {
             let tx_worker = tx_worker.clone();
-            handles.push(tokio::spawn(
-                async move { 
-                    println!("Start worker:{}",a);
-                    tx_worker.send(Worker::new(Profile::Base).await).await.unwrap();
-                    println!("--{:?} is started--",a);
-                },
-            ));
+            handles.push(tokio::spawn(async move {
+                println!("Start worker:{}", a);
+                tx_worker
+                    .send(Worker::new(Profile::Base).await)
+                    .await
+                    .unwrap();
+                println!("--{:?} is started--", a);
+            }));
         }
         let _ = join_all(handles);
         println!("all worker started");
 
         //start sheduler
-        Sheduler::event_router(tx_worker,rx_event);
+        Sheduler::event_router(tx_worker, rx_event);
 
         //pass back struct
-        Self { rx_worker,tx_event }
+        Self {
+            rx_worker,
+            tx_event,
+        }
     }
 
-    fn event_router(tx_worker:Sender<Worker>, mut rx_event:Receiver<ShedulingEvent>){
+    fn event_router(tx_worker: Sender<Worker>, mut rx_event: Receiver<ShedulingEvent>) {
         tokio::spawn(async move {
             loop {
                 let event = rx_event.recv().await.unwrap();
                 match event {
+                    ShedulingEvent::Ask(profile) => {
+                        tx_worker.send(Worker::new(profile).await).await.unwrap();
+                    }
+
                     //when one VM is quit
                     ShedulingEvent::Killed => {
                         //can put somme rule here
 
                         //spwawn new one to remplace dead
                         println!("[Sheduler]: Spawn new worker:");
-                        tx_worker.send(Worker::new(Profile::Base).await).await.unwrap();
+                        tx_worker
+                            .send(Worker::new(Profile::Base).await)
+                            .await
+                            .unwrap();
                     }
                 }
             }
@@ -113,7 +125,7 @@ impl Bot {
         let client = Self::login(matrixconf).await;
 
         //reating some worker
-        let sheduler = Sheduler::new(4).await;
+        let sheduler = Sheduler::new(1).await;
 
         //fill struct
         Bot {
@@ -180,9 +192,9 @@ impl Bot {
         loop {
             let data = rx.recv().await.expect("errr recv route data");
             drop(data); //<= to use after
-            // data; //<= to use after
-                  // println!("-------------------------------------");
-                  // println!("{:?}", data.presence.events);
+                        // data; //<= to use after
+                        // println!("-------------------------------------");
+                        // println!("{:?}", data.presence.events);
         }
     }
 
@@ -216,10 +228,19 @@ impl Bot {
             //if room trouver
             if let Some(room) = current_room_arc {
                 bot_room = room;
-            } 
+            }
             //sinon on en crée une nouvel est on lui donne un worker par def
             else {
-                let selected_worker = sheduler.rx_worker.recv().await.unwrap();
+                let selected_worker = match sheduler.rx_worker.try_recv() {
+                    Ok(w)=> w,
+                    Err(_)=>{
+                        if let Room::Joined(room) = bundle.room {
+                            let llama_answer = RoomMessageEventContent::text_plain("No room avaible convince somone to free one worker");
+                            room.send(llama_answer, None).await.unwrap();
+                        }
+                        return ;
+                    },
+                };
 
                 bot_room = Arc::new(Mutex::new(BotRoom {
                     id: roomid.into(),
@@ -241,10 +262,21 @@ impl Bot {
                     None => msg.body,
                 };
                 println!("{}", message);
-                if message == "!reset" {
-                    Bot::rcv_reset(bot_room, sheduler).await;
-                } else {
-                    Bot::rcv_message(bundle, bot_room, message);
+                let msg_room = &bundle.room;
+                match message.as_ref() {
+                    "!stop" => Bot::rcv_stop(&bot_room, sheduler, msg_room).await,
+                    "!start" => Bot::rcv_start(bot_room, sheduler, msg_room).await,
+
+                    // msg if msg.starts_with("!ask ") => {
+                    //     let parts: Vec<&str> = msg.splitn(2, ' ').collect();
+                    //     if let Some(arg) = parts.get(1) {
+                    //         Bot::rcv_ask(bot_room, sheduler, arg).await
+                    //     }
+                    // },
+                    "!reset" => Bot::rcv_reset(bot_room, sheduler, msg_room).await,
+                    "!help" => Bot::rcv_help(msg_room).await,
+                    // "!!" => {},
+                    _ => Bot::rcv_message(bundle, bot_room, message),
                 }
                 //append message
             }
@@ -260,10 +292,29 @@ impl Bot {
     //BOOOT cmd
 
     //nomal
+    async fn rcv_help(room: &Room) {
+        if let Room::Joined(room) = room {
+            let llama_answer = RoomMessageEventContent::text_plain("\
+!help => print that
+!start => start bot (take a worker)
+!stop => stop bot (release a worker)
+!reset => reset bot");
+            room.send(llama_answer, None).await.unwrap();
+        }
+        return;
+    }
     fn rcv_message(bundle: CtxEventRoom, bot_room: Arc<Mutex<BotRoom>>, message: String) {
         tokio::spawn(async move {
             let bot_room = bot_room.clone();
             let current_room = bot_room.lock().await;
+            
+            if !current_room.worker.lock().await.alive {
+                if let Room::Joined(room) = bundle.room {
+                    let llama_answer = RoomMessageEventContent::text_plain("Room not started");
+                    room.send(llama_answer, None).await.unwrap();
+                }
+                return;
+            }
 
             let mut hist = current_room.message.lock().await.clone();
             hist.push(message);
@@ -285,24 +336,42 @@ impl Bot {
         });
     }
 
-    async fn rcv_reset(bot_room: Arc<Mutex<BotRoom>>, sheduler: &mut Sheduler) {
-        let mut room_lock = bot_room.lock().await;
-        room_lock.worker.lock().await.quit().await;
-        
-        println!("SEND KILL");
-        sheduler.tx_event.send(ShedulingEvent::Killed).await.unwrap();
+    async fn rcv_reset(bot_room: Arc<Mutex<BotRoom>>, sheduler: &mut Sheduler, room: &Room) {
+        Bot::rcv_stop(&bot_room, sheduler, &room).await;
+        Bot::rcv_start(bot_room, sheduler, &room).await;
+    }
 
+    async fn rcv_stop(bot_room: &Arc<Mutex<BotRoom>>, sheduler: &mut Sheduler, room: &Room) {
+        let room_lock = bot_room.lock().await;
+        if let Err(_) = room_lock.worker.lock().await.quit().await {
+            if let Room::Joined(room) = room {
+                let llama_answer = RoomMessageEventContent::text_plain("already quit");
+                room.send(llama_answer, None).await.unwrap();
+            }
+            return;
+        }
+
+        println!("SEND KILL");
+        sheduler
+            .tx_event
+            .send(ShedulingEvent::Killed)
+            .await
+            .unwrap();
+    }
+
+    async fn rcv_start(bot_room: Arc<Mutex<BotRoom>>, sheduler: &mut Sheduler, room: &Room) {
+        let mut room_lock = bot_room.lock().await;
+        if room_lock.worker.lock().await.alive {
+            if let Room::Joined(room) = room {
+                let llama_answer = RoomMessageEventContent::text_plain("already started");
+                room.send(llama_answer, None).await.unwrap();
+            }
+            return;
+        }
         println!("PICK worker");
         let selected_worker = sheduler.rx_worker.recv().await.unwrap();
         room_lock.worker = Arc::new(Mutex::new(selected_worker));
     }
-
-    // async fn rcv_reset(bot_room:Arc<Mutex<BotRoom>>,workers:&Arc<Mutex<Vec<Worker>>>){
-    //     let selected_worker = workers.lock().await.remove(0);
-    //     let mut room_lock = bot_room.lock().await;
-    //     room_lock.worker.lock().await.quit().await;
-    //     room_lock.worker = Arc::new(Mutex::new(selected_worker));
-    // }
 
     //get deleted when sync stoped
     async fn sync(login: Client) {

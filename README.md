@@ -4,3 +4,5 @@
 - [ ] crypto (auto add)
 - [x] pipe program
 - [x] multiple user
+
+git version "eaf98c26"
