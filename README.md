@@ -1,6 +1,9 @@
 # Llama Matrix Bot
 
-Welcome to the Llama Matrix Bot, a high-functioning chat bot crafted utilizing the powerful Llama.cpp framework. This project is envisioned to augment user interaction by offering seamless integration and a host of functionalities without the dependency on bindings or additional libraries. It operates through a direct fork of the Llama.cpp process, a choice propelled by the desire to sidestep the learning curve associated with new libraries.
+
+Welcome to the Llama Matrix Bot project, a straightforward yet powerful chat bot that enhances user interactions on the Matrix platform, utilizing the Matrix SDK. This bot uniquely leverages the LLama.cpp project directly, harnessing its capabilities to manage multiple users and workers efficiently.
+
+At its core, the bot is designed to launch and manage multiple instances of the LLama.cpp program as "workers", facilitating simultaneous engagements and smooth operations. Despite its simple architecture, it promises a robust performance, adept at handling multiple users and orchestrating tasks across various workers seamlessly.
 
 ## Commands to use on a room
 My bot for now understands and reacts to the following commands, enhancing user interaction and management:
