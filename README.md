@@ -25,7 +25,7 @@ The Llama Matrix Bot is robust and versatile, boasting the following capabilitie
 - **Multiple Worker Profiles**: Supports various worker profiles to cater to different tasks.
 
 ### Upcoming Enhancements
-We are tirelessly working to upgrade the capabilities of the Llama Matrix Bot. Here are some exciting features to look forward to:
+I'm continuously looking to improve the Llama Matrix Bot. Here are some exciting features to look forward to:
 
 - [ ] Context Saving: Enables users to roll back and share the room state with the bot, facilitating efficient real-time scheduling by multiplexing in time.
 - [ ] Workload Profile Selection: Allows users to select profiles based on workload necessities.
